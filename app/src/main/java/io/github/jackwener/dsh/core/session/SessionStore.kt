@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -112,12 +113,19 @@ class SessionStore @Inject constructor(
     private val errorReported = ConcurrentHashMap<String, Int>()
     /** viewer (a conversation screen) -> the session it shows. */
     private val viewers = ConcurrentHashMap<Any, String>()
+    /**
+     * Root sessions the app owns (a row it wrote, see [SessionVisibility]); only these and their
+     * subagents (`root/child`) get a [status] entry. Plugins' background sessions run in the same
+     * engine but must not drive the sidebar, the floating ball or the "running" notification's tap.
+     */
+    private val ownedRoots = ConcurrentHashMap.newKeySet<String>()
 
     private val _status = MutableStateFlow<Map<String, RowStatus>>(emptyMap())
     /** Live sidebar status per session (approval / question / running). */
     val status: StateFlow<Map<String, RowStatus>> = _status.asStateFlow()
 
-    val conversations: Flow<List<SessionEntity>> = dao.observeAttended()
+    /** The session list (drawer, quick panel): [SessionVisibility.listed], the rule notifications share. */
+    val conversations: Flow<List<SessionEntity>> = dao.observeTopLevel().map { rows -> rows.filter(SessionVisibility::listed) }
 
     init {
         // Rows still marked running belong to a previous app process (both processes died): the
@@ -138,6 +146,7 @@ class SessionStore @Inject constructor(
     private suspend fun flowOf(sessionId: String): MutableStateFlow<SessionLive> = states[sessionId] ?: loadLock.withLock {
         states[sessionId]?.let { return it }
         val entity = dao.get(sessionId)
+        if (entity != null && entity.parentId == null) ownedRoots += sessionId
         // Parsing a long log (tool results included) is real work: never on the caller's (often Main) thread.
         val events = dao.events(sessionId).let { rows -> withContext(Dispatchers.Default) { rows.map { it.toLogged() } } }
         val preset = entity?.preset?.let { PermissionPreset.of(it) } ?: settings.current().defaultPreset
@@ -156,7 +165,7 @@ class SessionStore @Inject constructor(
             s.running -> RowStatus.Running
             else -> RowStatus.Idle
         }
-        _status.update { if (it[sessionId] == st) it else it + (sessionId to st) }
+        if (sessionId.substringBefore('/') in ownedRoots) _status.update { if (it[sessionId] == st) it else it + (sessionId to st) }
         // CPU stays awake only while some turn is actively running (not while it waits for the user, an unlock or the network).
         if (states.values.any { it.value.running && !it.value.hasPendingRequest && !it.value.waitingForUnlock && !it.value.waitingForNetwork }) wakeLock.hold() else wakeLock.release()
     }
@@ -176,12 +185,24 @@ class SessionStore @Inject constructor(
 
     /**
      * Which session [viewer] (a conversation screen: home, quick panel) shows; null when it goes
-     * away. A session counts as seen while any viewer shows it (clears its completed-unread dot).
+     * away. A session counts as seen while any viewer shows it (clears its completed-unread dot); also
+     * called again when the screen comes back to the front. Seeing it clears its notification (#43).
      */
     fun setViewing(viewer: Any, sessionId: String?) {
         if (sessionId == null) viewers.remove(viewer) else viewers[viewer] = sessionId
-        if (sessionId != null) scope.launch { dao.setUnread(sessionId, false) }
+        if (sessionId != null) {
+            runCatching { Notifications.cancelSession(context, sessionId) }
+            scope.launch { dao.setUnread(sessionId, false) }
+        }
     }
+
+    /**
+     * A session the engine runs for someone else ([SessionVisibility]): it reported events, but the app never
+     * wrote a row for it (a plugin's background session). Links to it open nothing. A new conversation that
+     * is still being created (quick panel 在应用中打开, a deferred run) has no engine events yet and is not one.
+     */
+    suspend fun isForeign(sessionId: String): Boolean =
+        dao.get(sessionId) == null && states[sessionId]?.value?.events?.any { it.seq >= 0 } == true
 
     private fun isViewed(sessionId: String) = sessionId in viewers.values
 
@@ -273,6 +294,7 @@ class SessionStore @Inject constructor(
         if (!appPrompt) capabilities.onUserPrompt(sessionId, text)
         // A prompt the app sent for the user is not re-sent verbatim by 重试 (that asks to continue).
         val retryText = text.takeUnless { appPrompt }
+        if (existing?.parentId == null) ownedRoots += sessionId
         if (existing == null) dao.upsert(SessionEntity(sessionId, text.lineSequence().first().take(40), now, now, ruleId, running = true, preset = live.preset.id, modeId = live.modeId))
         else dao.setRunning(sessionId, true)
         // Steering a running session keeps it an engine run (no startingEngine): see hasEngineRuns.
@@ -451,6 +473,11 @@ class SessionStore @Inject constructor(
     suspend fun rename(sessionId: String, title: String) { dao.setTitle(sessionId, title); mutate(sessionId) { it.copy(title = title) } }
     suspend fun setPinned(sessionId: String, pinned: Boolean) = dao.setPinned(sessionId, pinned)
     suspend fun setArchived(sessionId: String, archived: Boolean) = dao.setArchived(sessionId, archived)
+    /** 免打扰: no notification when its turns finish (cards that wait for the user still notify, see SessionNotices). */
+    suspend fun setMuted(sessionId: String, muted: Boolean) {
+        dao.setMuted(sessionId, muted)
+        if (muted) Notifications.cancelSession(context, sessionId)
+    }
     suspend fun setPreset(sessionId: String, preset: PermissionPreset) {
         // Preset changes are rare and user-initiated; the stack pins down any other caller.
         android.util.Log.i(TAG, "session $sessionId preset -> ${preset.id}", Throwable("setPreset caller"))
@@ -608,8 +635,7 @@ class SessionStore @Inject constructor(
         val deferred = CompletableDeferred<ApprovalOutcome>()
         approvals[key] = deferred
         val outcome = awaitCard(sessionId, PendingApproval(key, sessionId, tool, callId, p.s("reason"), args, risk, risk != Risk.dangerous), key, approvals, deferred) {
-            if (!AppVisibility.isForeground) Notifications.post(context, Notifications.CHANNEL_ATTENTION, sessionId.hashCode(),
-                context.getString(R.string.notif_approval_title), context.getString(R.string.notif_approval_text, tool), sessionId)
+            if (!AppVisibility.isForeground) announceWaiting(sessionId, context.getString(R.string.notif_approval_title), context.getString(R.string.notif_approval_text, tool))
         }
         android.util.Log.i(TAG, "approval $tool answered $outcome; preset now ${flowOf(sessionId).value.preset.id}")
         return when (outcome) {
@@ -625,7 +651,7 @@ class SessionStore @Inject constructor(
      * card always leaves the slot, even when the waiting coroutine is cancelled.
      */
     private suspend fun <T> awaitCard(owner: String, card: Any, key: String, registry: MutableMap<String, CompletableDeferred<T>>,
-                                      deferred: CompletableDeferred<T>, announce: () -> Unit): T {
+                                      deferred: CompletableDeferred<T>, announce: suspend () -> Unit): T {
         try {
             mutate(owner) { it.withPending(card) }
             announce()
@@ -672,8 +698,7 @@ class SessionStore @Inject constructor(
         val deferred = CompletableDeferred<JsonElement>()
         questions[key] = deferred
         return awaitCard(owner, PendingQuestion(key, owner, qs), key, questions, deferred) {
-            if (!AppVisibility.isForeground) Notifications.post(context, Notifications.CHANNEL_ATTENTION, owner.hashCode(),
-                context.getString(R.string.notif_question_title), qs.firstOrNull()?.text ?: "", owner)
+            if (!AppVisibility.isForeground) announceWaiting(owner, context.getString(R.string.notif_question_title), qs.firstOrNull()?.text)
         }
     }
 
@@ -709,8 +734,7 @@ class SessionStore @Inject constructor(
         val deferred = CompletableDeferred<Boolean>()
         permissions[key] = deferred
         return awaitCard(owner, PendingPermission(key, owner, toolName, permissionIdFor(what), what), key, permissions, deferred) {
-            if (!AppVisibility.isForeground) Notifications.post(context, Notifications.CHANNEL_ATTENTION, owner.hashCode(),
-                context.getString(R.string.perm_card_strip), what, owner)
+            if (!AppVisibility.isForeground) announceWaiting(owner, context.getString(R.string.perm_card_strip), what)
         }
     }
 
@@ -729,8 +753,7 @@ class SessionStore @Inject constructor(
         try {
             var deferred = CompletableDeferred<TakeoverAnswer>().also { takeovers[key] = it }
             mutate(owner) { it.withPending(card) }
-            Notifications.post(context, Notifications.CHANNEL_ATTENTION, owner.hashCode() + 2,
-                context.getString(R.string.takeover_title), reason, owner)
+            announceWaiting(owner, context.getString(R.string.takeover_title), reason, Notifications.ID_SESSION_TAKEOVER)
             val first = deferred.await()
             if (first != TakeoverAnswer.Start) return first
             // Taps while the app moves still reach the first, answered card and are dropped.
@@ -742,13 +765,25 @@ class SessionStore @Inject constructor(
         } finally {
             takeovers.remove(key)
             withContext(NonCancellable) {
-                runCatching { androidx.core.app.NotificationManagerCompat.from(context).cancel(owner.hashCode() + 2) }
+                runCatching { Notifications.cancelSession(context, owner, Notifications.ID_SESSION_TAKEOVER) }
                 mutate(owner) { it.withoutPending(key) }
             }
         }
     }
 
     fun answerTakeover(requestKey: String, answer: TakeoverAnswer) { takeovers[requestKey]?.complete(answer) }
+
+    /**
+     * A card of [sessionId]'s conversation waits for the user: its notification in slot [id] (SessionNotices:
+     * only for the user's own sessions, muted or not). Also the unlock wait of a device call (CapabilityHub).
+     */
+    suspend fun announceWaiting(sessionId: String, headline: String, detail: String?, id: Int = Notifications.ID_SESSION) {
+        val owner = rootOf(sessionId)
+        SessionNotices.waiting(context, owner, dao.get(owner), flowOf(owner).value.title, headline, detail, id)
+    }
+
+    /** The wait announced in slot [id] is over. */
+    suspend fun clearWaiting(sessionId: String, id: Int) = Notifications.cancelSession(context, rootOf(sessionId), id)
 
     /** Engine refused a step because a token/cost budget is exhausted. */
     suspend fun onBudgetExceeded(p: JsonObject) {
@@ -773,15 +808,13 @@ class SessionStore @Inject constructor(
             return
         }
         if (states.values.none { it.value.running }) engine.scheduleIdleShutdown()
-        if (dao.get(sessionId)?.parentId != null) return
+        // Only the user's own conversations (#43): a plugin's background session has no row, a subagent has a parent.
+        val row = dao.get(sessionId) ?: return
+        if (!SessionVisibility.userFacing(sessionId, row)) return
         if (!isViewed(sessionId) || !AppVisibility.isForeground) dao.setUnread(sessionId, true)
         if (!AppVisibility.isForeground) {
-            val conv = Projector.conversation(live.events, running = false)
-            val last = conv.turns.lastOrNull()
-            // Work remains (open todos, a limit): say so first, not as a normal reply.
-            val reply = (last?.reply?.text ?: return).let { if (last.endReason?.continuable == true) context.getString(R.string.notify_not_finished, it) else it }
-            Notifications.post(context, Notifications.CHANNEL_TASKS, sessionId.hashCode(),
-                live.title.ifBlank { context.getString(R.string.app_name) }, reply.take(300), sessionId)
+            val last = Projector.conversation(live.events, running = false).turns.lastOrNull()
+            SessionNotices.turnFinished(context, sessionId, row, live.title, last)
         }
     }
 

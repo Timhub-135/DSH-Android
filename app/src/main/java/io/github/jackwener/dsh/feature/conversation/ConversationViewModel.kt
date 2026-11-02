@@ -144,6 +144,9 @@ open class ConversationController(
     fun setModel(provider: String, m: String) = viewModelScope.launch { settingsRepo.setModel(provider, m) }
     fun setEffort(e: Effort) = viewModelScope.launch { settingsRepo.setEffort(e) }
 
+    /** The screen is in front again: its session counts as seen (unread dot, notification). */
+    fun markSeen() = store.setViewing(this, id)
+
     fun inspect(callId: String) { view.value = SessionView.Trajectory; focusRecord.value = "k$callId" }
 
     override fun onCleared() { store.setViewing(this, null) }
@@ -178,6 +181,7 @@ class HomeViewModel @Inject constructor(
 
     fun rename(id: String, title: String) = viewModelScope.launch { store.rename(id, title) }
     fun pin(id: String, pinned: Boolean) = viewModelScope.launch { store.setPinned(id, pinned) }
+    fun mute(id: String, muted: Boolean) = viewModelScope.launch { store.setMuted(id, muted) }
     fun archive(id: String, archived: Boolean) = viewModelScope.launch {
         store.setArchived(id, archived)
         if (archived && id == this@HomeViewModel.id) newSession()

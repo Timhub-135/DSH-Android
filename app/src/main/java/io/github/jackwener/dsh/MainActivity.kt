@@ -174,7 +174,8 @@ class MainActivity : ComponentActivity() {
             routed = true; navReady = true
         }
         LaunchedEffect(pendingSession) {
-            pendingSession?.let { id -> home.open(id); nav.toHome(); pendingSession = null }
+            // Never a plugin's background session (#43; e.g. an old notification of one): home stays as it is.
+            pendingSession?.let { id -> if (!sessions.isForeign(id)) home.open(id); nav.toHome(); pendingSession = null }
         }
         LaunchedEffect(pendingSection) {
             // Ignored during onboarding (home is not on the stack yet), as before.

@@ -46,6 +46,9 @@
     <string name="row_answer">待回答</string>
     <string name="pin_session">置顶会话</string>
     <string name="unpin_session">取消置顶</string>
+    <string name="mute_session">免打扰</string>
+    <string name="unmute_session">取消免打扰</string>
+    <string name="session_muted">已开启免打扰</string>
     <string name="rename">重命名</string>
     <string name="archive_session">归档会话</string>
     <string name="unarchive_session">取消归档</string>
@@ -156,6 +159,10 @@
     <string name="end_budget_settings">调整上限</string>
     <string name="continue_task">继续</string>
     <string name="notify_not_finished">任务未完成：%1$s</string>
+    <string name="notif_done_generic">任务已完成</string>
+    <string name="notif_not_finished_generic">任务未完成，可以继续</string>
+    <string name="notif_attention">%1$s：%2$s</string>
+    <string name="notif_sessions_summary">%1$d 个会话有新消息</string>
     <string name="deep_diving">深度求索中，用时 %1$s ···</string>
     <string name="starting_engine">正在启动智能体引擎…</string>
     <string name="waiting_unlock">等待你解锁手机后继续…</string>
@@ -507,6 +514,15 @@
     <string name="shizuku_unauthorized">未授权</string>
     <string name="shizuku_ready">可用</string>
     <string name="shizuku_unsupported">版本过旧</string>
+    <string name="shizuku_unsupported_v">版本过旧（服务 API %1$d，需要 %2$d 以上）</string>
+    <string name="shz_hint_missing">可在 设置 → 手机权限 里一键安装（可选）</string>
+    <string name="shz_hint_start">在开发者选项里打开「无线调试」，再到 Shizuku 里配对并点「启动」</string>
+    <string name="shz_hint_stopped">打开 Shizuku 点「启动」（每次重启手机后都要再启动一次）</string>
+    <string name="shz_hint_permission">点「授权」，在 Shizuku 弹窗里允许 DSH</string>
+    <string name="shz_hint_denied">之前拒绝过：到 Shizuku 的「授权应用」里打开 DSH</string>
+    <string name="shz_hint_old">把 Shizuku 更新到最新版，再重新启动它</string>
+    <string name="shz_versions">Shizuku %1$s · 服务 API %2$s</string>
+    <string name="shz_server_down">未运行</string>
     <string name="shz_group">增强能力 · Shizuku</string>
     <string name="shz_strip">需要 Shizuku</string>
     <string name="shz_jit_body">“%1$s”要用 Shizuku 才能直接完成。准备好后会自动继续。</string>

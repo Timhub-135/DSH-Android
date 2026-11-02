@@ -17,16 +17,17 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * Room migrations against real SQLite (sqlite-jdbc): builds the released v2 database from its
- * frozen schema export (test resource `room-schemas/2.json`), fills it, runs the migration SQL and
+ * Room migrations against real SQLite (sqlite-jdbc): builds a released database from its frozen
+ * schema export (test resources `room-schemas/<version>.json`), fills it, runs the migration SQL and
  * checks the result against the schema Room exports for the current version (`app/schemas/…`),
  * column by column the way Room validates on open, and that every row survived.
  */
 class MigrationTest {
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Released versions are frozen test resources; the current one is Room's own export. */
     private fun schema(version: Int): JsonObject {
-        val text = if (version == 2) javaClass.classLoader!!.getResource("room-schemas/2.json")!!.readText()
+        val text = if (version < DB_VERSION) javaClass.classLoader!!.getResource("room-schemas/$version.json")!!.readText()
         else File("schemas/io.github.jackwener.dsh.core.data.DshDatabase/$version.json").readText()
         return json.parseToJsonElement(text).jsonObject["database"]!!.jsonObject
     }
@@ -80,7 +81,7 @@ class MigrationTest {
             Migrations.SQL_2_3.forEach { c.exec(it) }
 
             for (table in listOf("sessions", "events", "rules", "rule_runs", "usage"))
-                assertEquals("table $table matches the v$DB_VERSION schema", expectedColumns(DB_VERSION, table), c.columns(table))
+                assertEquals("table $table matches the v3 schema", expectedColumns(3, table), c.columns(table))
             c.createStatement().use { st ->
                 st.executeQuery("SELECT id, title, pinned, preset, modeId FROM sessions ORDER BY id").use { rs ->
                     assertTrue(rs.next()); assertEquals("s1", rs.getString("id")); assertEquals("整理下载", rs.getString("title"))
@@ -97,10 +98,26 @@ class MigrationTest {
         }
     }
 
-    @Test fun `a fresh v3 database has the same tables as a migrated one`() {
+    @Test fun `3 to 4 adds muted, off for every existing conversation`() {
+        create(3).use { c ->
+            c.exec("INSERT INTO sessions (id, title, createdAt, updatedAt, ruleId, running, parentId, pinned, archived, unread, preset, modeId) " +
+                "VALUES ('s1', '整理下载', 1, 2, NULL, 0, NULL, 1, 0, 0, NULL, 'chat')")
+            Migrations.SQL_3_4.forEach { c.exec(it) }
+            for (table in listOf("sessions", "events", "rules", "rule_runs", "usage"))
+                assertEquals("table $table matches the v$DB_VERSION schema", expectedColumns(DB_VERSION, table), c.columns(table))
+            c.createStatement().use { st ->
+                st.executeQuery("SELECT title, modeId, muted FROM sessions").use { rs ->
+                    assertTrue(rs.next()); assertEquals("整理下载", rs.getString("title")); assertEquals("chat", rs.getString("modeId")); assertEquals(0, rs.getInt("muted"))
+                }
+            }
+            c.exec("UPDATE sessions SET muted = 1 WHERE id = 's1'")
+        }
+    }
+
+    @Test fun `a fresh database has the same tables as a migrated one`() {
         create(DB_VERSION).use { fresh ->
             create(2).use { migrated ->
-                Migrations.SQL_2_3.forEach { migrated.exec(it) }
+                (Migrations.SQL_2_3 + Migrations.SQL_3_4).forEach { migrated.exec(it) }
                 for (table in listOf("sessions", "events", "rules", "rule_runs", "usage")) assertEquals(table, fresh.columns(table), migrated.columns(table))
             }
         }

@@ -73,6 +73,8 @@ fun SessionDrawer(
     onClose: () -> Unit,
     onRename: (String, String) -> Unit,
     onPin: (String, Boolean) -> Unit,
+    /** 免打扰 on / off (#43). */
+    onMute: (String, Boolean) -> Unit,
     onArchive: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
 ) {
@@ -123,7 +125,7 @@ fun SessionDrawer(
         LazyColumn(Modifier.weight(1f)) {
             if (shown.isEmpty()) item { EmptyNote(stringResource(if (query.isBlank()) R.string.no_sessions else R.string.no_matching_sessions)) }
             items(shown, key = { it.id }) { s ->
-                SessionRow(s, status[s.id] ?: RowStatus.Idle, s.id == currentId, now, { onOpen(s.id) }, onRename, onPin, archive, onDelete)
+                SessionRow(s, status[s.id] ?: RowStatus.Idle, s.id == currentId, now, { onOpen(s.id) }, onRename, onPin, onMute, archive, onDelete)
             }
         }
         archived?.let { id ->
@@ -154,7 +156,8 @@ private fun PanelEntry(@DrawableRes icon: Int, label: String, onClick: () -> Uni
 @Composable
 private fun SessionRow(
     s: SessionEntity, st: RowStatus, selected: Boolean, now: Long, onClick: () -> Unit,
-    onRename: (String, String) -> Unit, onPin: (String, Boolean) -> Unit, onArchive: (String, Boolean) -> Unit, onDelete: (String) -> Unit,
+    onRename: (String, String) -> Unit, onPin: (String, Boolean) -> Unit, onMute: (String, Boolean) -> Unit,
+    onArchive: (String, Boolean) -> Unit, onDelete: (String) -> Unit,
 ) {
     val c = Dsh.colors
     val context = LocalContext.current
@@ -177,6 +180,10 @@ private fun SessionRow(
             Text(s.title.ifBlank { stringResource(R.string.untitled) }, Modifier.weight(1f), style = DshType.s14.copy(lineHeight = DshType.xs13.lineHeight),
                 color = if (s.archived) c.labelCaption else c.labelPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(8.dp))
+            if (s.muted) {
+                DIcon(R.drawable.dsw_bell_off_outline, size = 12.dp, tint = c.labelCaption, contentDescription = stringResource(R.string.session_muted))
+                Spacer(Modifier.width(4.dp))
+            }
             val trailing = when (st) {
                 RowStatus.Approval -> stringResource(R.string.row_approval)
                 RowStatus.Question -> stringResource(R.string.row_answer)
@@ -189,6 +196,7 @@ private fun SessionRow(
         }
         DMenu(menu, { menu = false }) {
             MenuItem(stringResource(if (s.pinned) R.string.unpin_session else R.string.pin_session), { menu = false; onPin(s.id, !s.pinned) }, R.drawable.dsw_pin_outline)
+            MenuItem(stringResource(if (s.muted) R.string.unmute_session else R.string.mute_session), { menu = false; onMute(s.id, !s.muted) }, R.drawable.dsw_bell_off_outline)
             MenuItem(stringResource(R.string.rename), { menu = false; renaming = true }, R.drawable.dsw_edit_outline)
             MenuItem(stringResource(if (s.archived) R.string.unarchive_session else R.string.archive_session), { menu = false; onArchive(s.id, !s.archived) },
                 if (s.archived) R.drawable.dsw_unarchive_outline else R.drawable.dsw_archive_outline)

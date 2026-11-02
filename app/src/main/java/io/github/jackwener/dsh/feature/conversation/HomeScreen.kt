@@ -42,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.jackwener.dsh.R
 import io.github.jackwener.dsh.core.data.Settings
@@ -71,6 +72,8 @@ fun HomeScreen(vm: HomeViewModel, onSettings: (String?) -> Unit, onAutomation: (
     val currentId by vm.currentId.collectAsStateWithLifecycle()
     // Transient layers close before Back leaves home (BackHandlerAllowlistTest): the open drawer.
     BackHandler(drawer.isOpen) { scope.launch { drawer.close() } }
+    // Back in front with a conversation open (e.g. from the launcher after a background run): it is seen now.
+    LifecycleResumeEffect(currentId) { vm.markSeen(); onPauseOrDispose {} }
     ModalNavigationDrawer(
         drawerState = drawer,
         scrimColor = c.scrim,
@@ -84,7 +87,7 @@ fun HomeScreen(vm: HomeViewModel, onSettings: (String?) -> Unit, onAutomation: (
                     onAutomation = { scope.launch { drawer.close() }; onAutomation() },
                     onSettings = { section -> scope.launch { drawer.close() }; onSettings(section) },
                     onClose = { scope.launch { drawer.close() } },
-                    onRename = vm::rename, onPin = vm::pin, onArchive = vm::archive, onDelete = vm::delete,
+                    onRename = vm::rename, onPin = vm::pin, onMute = vm::mute, onArchive = vm::archive, onDelete = vm::delete,
                 )
             }
         },

@@ -46,6 +46,9 @@
     <string name="row_answer">Answer</string>
     <string name="pin_session">Pin session</string>
     <string name="unpin_session">Unpin session</string>
+    <string name="mute_session">Mute notifications</string>
+    <string name="unmute_session">Unmute notifications</string>
+    <string name="session_muted">Muted</string>
     <string name="rename">Rename</string>
     <string name="archive_session">Archive session</string>
     <string name="unarchive_session">Unarchive</string>
@@ -156,6 +159,10 @@
     <string name="end_budget_settings">Adjust limits</string>
     <string name="continue_task">Continue</string>
     <string name="notify_not_finished">Not finished: %1$s</string>
+    <string name="notif_done_generic">Task finished</string>
+    <string name="notif_not_finished_generic">Not finished yet; you can continue</string>
+    <string name="notif_attention">%1$s: %2$s</string>
+    <string name="notif_sessions_summary">%1$d conversations have updates</string>
     <string name="deep_diving">Deep diving for %1$s ···</string>
     <string name="starting_engine">Starting the agent engine…</string>
     <string name="waiting_unlock">Waiting for you to unlock the phone…</string>
@@ -507,6 +514,15 @@
     <string name="shizuku_unauthorized">Not authorized</string>
     <string name="shizuku_ready">Ready</string>
     <string name="shizuku_unsupported">Too old</string>
+    <string name="shizuku_unsupported_v">Too old (server API %1$d, needs %2$d+)</string>
+    <string name="shz_hint_missing">Install it in one tap under Settings → Phone permissions (optional)</string>
+    <string name="shz_hint_start">Turn on Wireless debugging in Developer options, then pair and tap Start in Shizuku</string>
+    <string name="shz_hint_stopped">Open Shizuku and tap Start (needed again after every reboot)</string>
+    <string name="shz_hint_permission">Tap Authorize and allow DSH in the Shizuku prompt</string>
+    <string name="shz_hint_denied">Denied before: enable DSH under Authorized apps in Shizuku</string>
+    <string name="shz_hint_old">Update Shizuku to the latest version, then start it again</string>
+    <string name="shz_versions">Shizuku %1$s · server API %2$s</string>
+    <string name="shz_server_down">not running</string>
     <string name="shz_group">Enhanced access · Shizuku</string>
     <string name="shz_strip">Shizuku needed</string>
     <string name="shz_jit_body">“%1$s” needs Shizuku to do this directly. It continues by itself once ready.</string>

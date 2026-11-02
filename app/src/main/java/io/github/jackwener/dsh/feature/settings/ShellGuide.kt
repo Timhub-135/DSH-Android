@@ -83,14 +83,23 @@ fun rememberShellState(): Pair<ShellAccess, ShellState> {
     return access to state
 }
 
-/** Short status label for rows and Doctor. */
-fun shellStateLabel(context: Context, s: ShellState): String = context.getString(when (s) {
-    ShellState.NotInstalled -> R.string.shizuku_missing
-    is ShellState.InstalledNotRunning -> R.string.shizuku_stopped
-    is ShellState.RunningNoPermission -> R.string.shizuku_unauthorized
-    is ShellState.Unsupported -> R.string.shizuku_unsupported
-    ShellState.Ready -> R.string.shizuku_ready
-})
+/** Short status label for rows and Doctor; a too-old server says which API it has. */
+fun shellStateLabel(context: Context, s: ShellState): String = when (s) {
+    ShellState.NotInstalled -> context.getString(R.string.shizuku_missing)
+    is ShellState.InstalledNotRunning -> context.getString(R.string.shizuku_stopped)
+    is ShellState.RunningNoPermission -> context.getString(R.string.shizuku_unauthorized)
+    is ShellState.Unsupported -> context.getString(R.string.shizuku_unsupported_v, s.version, ShellAccess.MIN_VERSION)
+    ShellState.Ready -> context.getString(R.string.shizuku_ready)
+}
+
+/** The next step for the state in one line (Doctor rows, the card's caption); null when ready. */
+fun shellStateHint(context: Context, s: ShellState): String? = when (s) {
+    ShellState.NotInstalled -> context.getString(R.string.shz_hint_missing)
+    is ShellState.InstalledNotRunning -> context.getString(if (s.wasReady) R.string.shz_hint_stopped else R.string.shz_hint_start)
+    is ShellState.RunningNoPermission -> context.getString(if (s.denied) R.string.shz_hint_denied else R.string.shz_hint_permission)
+    is ShellState.Unsupported -> context.getString(R.string.shz_hint_old)
+    ShellState.Ready -> null
+}
 
 /**
  * The one-tap fix for the current state (Doctor rows), or null when there is nothing to open.
@@ -261,9 +270,15 @@ fun ShellAccessCard(modifier: Modifier = Modifier, onDecline: (() -> Unit)? = nu
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StateDot(when (s) { ShellState.Ready -> DotKind.Done; is ShellState.Unsupported -> DotKind.Error; ShellState.NotInstalled -> DotKind.Idle; else -> DotKind.Warn })
                 Text("Shizuku", Modifier.weight(1f), style = DshType.xs13m, color = c.labelTertiary)
-                Tag(shellStateLabel(LocalContext.current, s), if (s.ready) Tone.Success else Tone.Neutral)
+                Tag(shellStateLabel(LocalContext.current, s), when (s) { ShellState.Ready -> Tone.Success; is ShellState.Unsupported -> Tone.Warn; else -> Tone.Neutral })
             }
             ShellGuideBody(s, null, flow)
+            // Which Shizuku this is, so "installed" / "too old" can be checked against the app itself (#42).
+            if (s != ShellState.NotInstalled) {
+                val versions = remember(s) { access.managerVersion()?.ifEmpty { null } to access.serverVersion() }
+                Text(stringResource(R.string.shz_versions, versions.first ?: "?", versions.second?.toString() ?: stringResource(R.string.shz_server_down)),
+                    style = DshType.xxs12, color = c.labelTertiary)
+            }
             // After a reboot (was ready, now stopped) always repeat the tip: having to restart it proves boot-start is off.
             val rebootTip = s is ShellState.InstalledNotRunning && s.wasReady && access.bootTipApplicable
             if ((s.ready && access.bootTipApplicable && !tipDismissed) || rebootTip) {

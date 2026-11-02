@@ -251,15 +251,17 @@ class CapabilityHub @Inject constructor(
     private suspend fun execute(tool: Tool, name: String, args: JsonObject, call: CallContext): ToolResult {
         val sessionId = call.sessionId
         if (tool.needsUnlock && lock.isLocked) {
-            val notifId = sessionId.hashCode() + 1
-            Notifications.post(context, Notifications.CHANNEL_ATTENTION, notifId,
-                context.getString(R.string.notif_unlock_title), context.getString(R.string.notif_unlock_text), sessionId.ifEmpty { null })
+            // The conversation's own unlock slot (only for the user's sessions); a step without a session gets a plain one.
+            val notifId = Notifications.ID_SESSION_UNLOCK
+            if (sessionId.isEmpty()) Notifications.post(context, Notifications.CHANNEL_ATTENTION, notifId,
+                context.getString(R.string.notif_unlock_title), context.getString(R.string.notif_unlock_text), null)
+            else sessions.get().announceWaiting(sessionId, context.getString(R.string.notif_unlock_title), context.getString(R.string.notif_unlock_text), notifId)
             val unlocked = try {
                 if (sessionId.isNotEmpty()) sessions.get().setWaitingForUnlock(sessionId, true)
                 call.waitFor("unlock the phone") { lock.awaitUnlock(call.deadlineMs - SystemClock.elapsedRealtime()) }
             } finally {
                 withContext(NonCancellable) {
-                    runCatching { androidx.core.app.NotificationManagerCompat.from(context).cancel(notifId) }
+                    runCatching { if (sessionId.isEmpty()) androidx.core.app.NotificationManagerCompat.from(context).cancel(notifId) else sessions.get().clearWaiting(sessionId, notifId) }
                     if (sessionId.isNotEmpty()) runCatching { sessions.get().setWaitingForUnlock(sessionId, false) }
                 }
             }

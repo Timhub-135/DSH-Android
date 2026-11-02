@@ -46,7 +46,35 @@ sealed interface ShellState {
         Ready -> "Shizuku is ready"
         is Unsupported -> "the installed Shizuku is too old (API $version)"
     }
+    /** What the user has to do next, in words (diagnostics; the UI has localized ones in ShellGuide). */
+    val hint get() = when (this) {
+        NotInstalled -> "install Shizuku from DSH → Settings → Phone permissions (optional)"
+        is InstalledNotRunning -> if (wasReady) "open Shizuku and tap Start (needed again after every reboot)"
+            else "turn on Wireless debugging in Developer options, then pair and start it in Shizuku"
+        is RunningNoPermission -> if (denied) "denied before: enable DSH under Authorized apps in Shizuku" else "tap Authorize in DSH (Shizuku shows its prompt)"
+        Ready -> "nothing to do"
+        is Unsupported -> "update Shizuku to the latest version, then start it again"
+    }
 }
+
+/**
+ * One look at Shizuku; [ShellAccess.classify] turns it into a [ShellState]. Kept apart from the
+ * Shizuku calls so the mapping is testable: the binder answering (pingBinder) is what "running"
+ * means, the package lookup only tells "not installed" from "installed but stopped".
+ */
+data class ShellProbe(
+    val binderAlive: Boolean,
+    /** Server API version; null when asking failed (the binder died between the calls). */
+    val serverVersion: Int?,
+    /** Whether DSH holds the Shizuku permission; null when asking failed. */
+    val granted: Boolean?,
+    /** The user chose "deny" before (Shizuku will not prompt again). */
+    val denied: Boolean,
+    /** The Shizuku manager app is installed (package visible through `<queries>`). */
+    val managerInstalled: Boolean,
+    /** Shizuku was Ready here before (so a stopped server is the after-reboot case). */
+    val wasReady: Boolean,
+)
 
 /**
  * The single source of truth for Shizuku: a [StateFlow] driven by Shizuku's binder received/dead
@@ -90,18 +118,25 @@ class ShellAccess @Inject constructor(@ApplicationContext private val context: C
         return s
     }
 
-    private fun compute(): ShellState {
+    private fun compute(): ShellState = classify(probe())
+
+    private fun probe(): ShellProbe {
         val alive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
-        if (alive) {
-            val version = runCatching { if (Shizuku.isPreV11()) 10 else Shizuku.getVersion() }.getOrDefault(0)
-            if (version < MIN_VERSION) return ShellState.Unsupported(version)
-            val granted = runCatching { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
-            if (granted) return ShellState.Ready
-            return ShellState.RunningNoPermission(runCatching { Shizuku.shouldShowRequestPermissionRationale() }.getOrDefault(false))
-        }
-        if (managerVersion() == null) return ShellState.NotInstalled
-        return ShellState.InstalledNotRunning(wasReadyBefore())
+        // A failed call (the binder died meanwhile) reads as unknown, never as "too old" or "not authorized".
+        val version = if (!alive) null else runCatching { if (Shizuku.isPreV11()) 10 else Shizuku.getVersion() }.getOrNull()
+        val granted = if (version == null || version < MIN_VERSION) null
+            else runCatching { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED }.getOrNull()
+        val denied = granted == false && runCatching { Shizuku.shouldShowRequestPermissionRationale() }.getOrDefault(false)
+        return ShellProbe(alive, version, granted, denied, managerVersion() != null, wasReadyBefore())
     }
+
+    /** Server API version while the binder answers, else null (diagnostics). */
+    fun serverVersion(): Int? = if (!runCatching { Shizuku.pingBinder() }.getOrDefault(false)) null
+        else runCatching { if (Shizuku.isPreV11()) 10 else Shizuku.getVersion() }.getOrNull()
+
+    /** One line for 诊断信息: state, versions and the next step. */
+    fun describe(s: ShellState = state.value): String =
+        "${s.reason}; app ${managerVersion()?.ifEmpty { "?" } ?: "not installed"}; server API ${serverVersion() ?: "-"} (needs $MIN_VERSION+); next: ${s.hint}"
 
     private fun wasReadyBefore() = runCatching {
         context.getSharedPreferences("shell_access", Context.MODE_PRIVATE).getBoolean(KEY_WAS_READY, false)
@@ -141,6 +176,23 @@ class ShellAccess @Inject constructor(@ApplicationContext private val context: C
     fun developerOptionsIntent(): Intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     companion object {
+        /**
+         * The state for one [ShellProbe]: running = the binder answers with a version; a binder that
+         * stops answering mid-check counts as not running. Without the manager app it is "not installed"
+         * (a stopped server cannot be started without it anyway).
+         */
+        fun classify(p: ShellProbe): ShellState {
+            if (p.binderAlive && p.serverVersion != null) {
+                if (p.serverVersion < MIN_VERSION) return ShellState.Unsupported(p.serverVersion)
+                when (p.granted) {
+                    true -> return ShellState.Ready
+                    false -> return ShellState.RunningNoPermission(p.denied)
+                    null -> {}
+                }
+            }
+            return if (p.managerInstalled) ShellState.InstalledNotRunning(p.wasReady) else ShellState.NotInstalled
+        }
+
         const val PACKAGE = "moe.shizuku.privileged.api"
         const val RELEASES_URL = "https://github.com/RikkaApps/Shizuku/releases/latest"
         const val REQUEST_CODE = 7

@@ -1,6 +1,7 @@
 package io.github.jackwener.dsh.core.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -40,6 +41,8 @@ data class SessionEntity(
     val preset: String? = null,
     /** SessionMode id (issue #3); null = 默认 (rows from before modes, and conversations never given one). */
     val modeId: String? = null,
+    /** 免打扰 (#43): finished turns post no notification; a run blocked on the user still does. */
+    @ColumnInfo(defaultValue = "0") val muted: Boolean = false,
 )
 
 /**
@@ -72,8 +75,9 @@ data class UsageEntity(@PrimaryKey val day: String, val inputTokens: Long, val o
 
 @Dao
 interface SessionDao {
-    @Query("SELECT * FROM sessions WHERE ruleId IS NULL AND parentId IS NULL ORDER BY pinned DESC, updatedAt DESC")
-    fun observeAttended(): Flow<List<SessionEntity>>
+    /** Every row, newest first; the session list filters it with SessionVisibility.listed (one rule for list and notifications). */
+    @Query("SELECT * FROM sessions WHERE parentId IS NULL ORDER BY pinned DESC, updatedAt DESC")
+    fun observeTopLevel(): Flow<List<SessionEntity>>
     @Query("SELECT * FROM sessions WHERE id = :id")
     fun observe(id: String): Flow<SessionEntity?>
     @Query("SELECT * FROM sessions WHERE parentId = :id")
@@ -82,6 +86,8 @@ interface SessionDao {
     suspend fun setPinned(id: String, pinned: Boolean)
     @Query("UPDATE sessions SET archived = :archived WHERE id = :id")
     suspend fun setArchived(id: String, archived: Boolean)
+    @Query("UPDATE sessions SET muted = :muted WHERE id = :id")
+    suspend fun setMuted(id: String, muted: Boolean)
     @Query("UPDATE sessions SET unread = :unread WHERE id = :id")
     suspend fun setUnread(id: String, unread: Boolean)
     @Query("UPDATE sessions SET preset = :preset WHERE id = :id")
@@ -147,7 +153,7 @@ abstract class DshDatabase : RoomDatabase() {
     abstract fun usage(): UsageDao
 }
 
-const val DB_VERSION = 3
+const val DB_VERSION = 4
 
 /**
  * Schema migrations. Every released version from 2 on is migrated in place (conversations are user
@@ -162,7 +168,14 @@ object Migrations {
         override fun migrate(db: SupportSQLiteDatabase) { SQL_2_3.forEach(db::execSQL) }
     }
 
-    val ALL: Array<Migration> = arrayOf(M_2_3)
+    /** v4: `sessions.muted` (免打扰, #43). Existing rows read false = notifications as before. */
+    val SQL_3_4 = listOf("ALTER TABLE `sessions` ADD COLUMN `muted` INTEGER NOT NULL DEFAULT 0")
+
+    val M_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) { SQL_3_4.forEach(db::execSQL) }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M_2_3, M_3_4)
     /** Versions that are still recreated instead of migrated. */
     val DESTRUCTIVE_FROM = intArrayOf(1)
 }

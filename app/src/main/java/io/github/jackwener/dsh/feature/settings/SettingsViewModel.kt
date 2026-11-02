@@ -216,7 +216,7 @@ class SettingsViewModel @Inject constructor(
                 androidRelease = android.os.Build.VERSION.RELEASE,
                 sdk = android.os.Build.VERSION.SDK_INT,
                 abis = android.os.Build.SUPPORTED_ABIS.toList(),
-                shizuku = shell.reason,
+                shizuku = shizuku.access.describe(shell),
                 accessibility = granted("accessibility"),
                 overlay = granted("overlay"),
                 batteryExempt = granted("battery"),
@@ -265,7 +265,7 @@ class SettingsViewModel @Inject constructor(
         }
         val shell = shizuku.access.refresh()
         checks += DoctorCheck("Shizuku", if (shell == io.github.jackwener.dsh.core.platform.ShellState.NotInstalled) null else shell.ready,
-            shellStateLabel(context, shell), shellFixIntent(shizuku.access, shell, shizukuInstaller.bundled))
+            listOfNotNull(shellStateLabel(context, shell), shellStateHint(context, shell)).joinToString(" · "), shellFixIntent(shizuku.access, shell, shizukuInstaller.bundled))
         agentScreen.lastCreateError?.let { checks += DoctorCheck(context.getString(R.string.agent_screen_doctor), false, context.getString(R.string.agent_screen_create_failed, it)) }
         val signedIn = account.signedIn
         val third = settings.value.choice.provider
