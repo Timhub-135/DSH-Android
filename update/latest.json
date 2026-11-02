@@ -1,21 +1,21 @@
 {
   "format": 1,
   "packageName": "io.github.jackwener.dsh",
-  "versionCode": 25,
-  "versionName": "0.3.7",
+  "versionCode": 26,
+  "versionName": "0.3.8",
   "minSdk": 29,
   "apk": {
-    "name": "DSH-Android-v0.3.7-arm64.apk",
-    "size": 100585702,
-    "sha256": "b08af83dc2d64d332357c488f3664f445e20eda1409a5f2f578f2d1836deb02b",
+    "name": "DSH-Android-v0.3.8-arm64.apk",
+    "size": 100734852,
+    "sha256": "80cc39a73a50683a17bcfc6a623c4f9cd1398e77920845febeaa05d0af941754",
     "urls": [
-      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.7/DSH-Android-v0.3.7-arm64.apk"
+      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.8/DSH-Android-v0.3.8-arm64.apk"
     ]
   },
   "signerSha256": "2b37a375ead19476e5d0d9e38920032ea9822e880dcc7540a14e5ab6ac1f4f69",
   "notes": {
-    "zh": "- **插件的后台会话不再发通知**（#43）：心跳、QQ 机器人这类插件开的后台会话，以前每跑一轮都弹一条内容是 JSON 的通知，点进去还找不到。现在只有会话列表里看得到的会话才发通知；也不会再出现莫名其妙的“新会话”\n- **每个会话一条通知**（#43）：标题是会话名，内容是最后一句回复的摘要，点开直达那个会话；打开会话后通知自动清除，多条会分组显示\n- **会话免打扰**（#43）：长按会话或点“…”菜单可以设免打扰，只静音“任务完成”提醒；需要你批准、回答或解锁的请求仍会通知，免得任务一直卡着\n- **Shizuku 状态说清楚**（#42）：分开显示“没装”“没启动”“没授权”“版本太旧”“可用”，每种都给出下一步怎么做，诊断信息里也写清楚\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
-    "en": "- **Plugin background sessions no longer notify** (#43): heartbeat / QQ-bot style plugin sessions used to post a JSON notification every round that led nowhere. Only conversations shown in the session list notify now, and stray \"new conversation\" entries are gone\n- **One notification per conversation** (#43): titled with the conversation name, showing a short summary of the last reply; tapping opens it, opening it clears the notification, several are grouped\n- **Mute a conversation** (#43): long-press or \"…\" menu. Mutes \"task finished\" alerts only; approvals, questions and unlock requests still notify so tasks don't stall\n- **Clearer Shizuku status** (#42): not installed / not running / not authorized / too old / ready, each with the next step, also in diagnostics\n- Not yet tested on a real device"
+    "zh": "- **第三方模型可以调推理强度**（#46）：输入框上方的模型菜单里，Kimi、GLM、Qwen、OpenAI 等第三方模型也有“推理强度”了，只列这个模型真正支持的档位（由引擎按各家的写法发出去），也可以选“默认”。每个模型单独记住自己的选择。引擎认不出的自填模型，可以在模型设置里手动声明“推理档位”或“思考开关”\n- **俄语界面**（#44，感谢 @rder871 贡献翻译）：设置 → 通用 → 语言 里可以选 Русский\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
+    "en": "- **Reasoning effort for third-party models** (#46): Kimi, GLM, Qwen, OpenAI and other providers now get a reasoning-effort section in the model menu, listing only the levels that model supports (the engine handles each vendor's wire format), plus \"Default\". Each model remembers its own choice. Custom models the engine doesn't know can declare effort levels or a thinking switch in the model editor\n- **Russian UI** (#44, translation contributed by @rder871): Settings → General → Language → Русский\n- Not yet tested on a real device"
   },
-  "publishedAt": "2026-11-02T03:57:56Z"
+  "publishedAt": "2026-11-02T18:07:58Z"
 }
