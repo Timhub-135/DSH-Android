@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Русская локализация: работа с экраном. -->
+<resources>
+    <string name="takeover_title">Нужно твоё участие</string>
+    <string name="takeover_start">Беру на себя</string>
+    <string name="takeover_skip">Пропустить</string>
+    <string name="takeover_moved">App открыт на твоём экране. Разберись и вернись сюда, чтобы нажать «Готово».</string>
+    <string name="takeover_here">Разберись на телефоне, затем вернись сюда и нажми «Готово».</string>
+    <string name="takeover_handled">Готово</string>
+    <string name="takeover_done_by_user">Всё сделано мной</string>
+    <string name="takeover_abort">Не нужно</string>
+    <string name="takeover_kind_login">Вход</string>
+    <string name="takeover_kind_captcha">Капча</string>
+    <string name="takeover_kind_payment">Оплата</string>
+    <string name="takeover_kind_secure_page">Защищённая страница</string>
+    <string name="takeover_kind_choose">Нужно выбрать</string>
+    <string name="takeover_kind_other">Другое</string>
+    <string name="tool_hand_to_user">Передать тебе</string>
+    <string name="agent_screen_setting">Работать с App на фоновом экране</string>
+    <string name="agent_screen_setting_desc">С Shizuku агент открывает App и работает с ним на невидимом фоновом экране, не занимая твой экран</string>
+    <string name="agent_preview_working">Агент работает на фоновом экране</string>
+    <string name="agent_preview_open">Посмотреть</string>
+    <string name="agent_preview_take_over">Беру управление</string>
+    <string name="agent_preview_taken">Уже на твоём экране</string>
+    <string name="agent_preview_close">Закрыть</string>
+    <string name="agent_screen_doctor">Фоновый экран</string>
+    <string name="agent_screen_create_failed">Не удалось создать фоновый экран: %1$s</string>
+</resources>
