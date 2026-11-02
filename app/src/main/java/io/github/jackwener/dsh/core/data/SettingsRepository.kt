@@ -17,9 +17,13 @@ import io.github.jackwener.dsh.core.model.SessionMode
 import io.github.jackwener.dsh.core.model.SessionModes
 import io.github.jackwener.dsh.core.model.ToolGroup
 import io.github.jackwener.dsh.core.provider.ModelChoice
+import io.github.jackwener.dsh.core.provider.ModelReasoning
+import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.provider.ProviderConfig
 import io.github.jackwener.dsh.core.provider.resolveChoice
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -37,7 +41,10 @@ enum class WorkDetails { Compact, Standard, Detailed }
 /** dsh "繁忙时的发送行为". */
 enum class BusySend { Queue, Steer }
 
-/** Reasoning effort ids accepted by the DeepSeek adapter (`packages/llm/llm-deepseek/src/model-info.ts`). */
+/**
+ * Reasoning effort ids accepted by the DeepSeek adapter (`packages/llm/llm-deepseek/src/model-info.ts`).
+ * DeepSeek only; third-party models offer the levels the engine reports for them (ModelReasoning.kt).
+ */
 enum class Effort(val id: String, val label: String) {
     Off("off", "Off"), Low("low", "Low"), High("high", "High"), Max("max", "Max");
     companion object { fun of(id: String?) = entries.firstOrNull { it.id == id } ?: High }
@@ -71,6 +78,10 @@ data class Settings(
     val reflectExperience: Boolean = true,
     /** Third-party OpenAI-compatible providers (keys live in SecretStore, never here). */
     val providers: List<ProviderConfig> = emptyList(),
+    /** Third-party 推理强度 per route + model ([ReasoningLevels.key] → level id); absent = the model's default. */
+    val reasoningChoices: Map<String, String> = emptyMap(),
+    /** Each third-party model's levels as the engine last reported them (refreshed at every engine start). */
+    val reasoningCatalog: Map<String, ModelReasoning> = emptyMap(),
     /** The user's own session modes (设置 → 会话模式); the built-ins live in [SessionModes]. */
     val modes: List<SessionMode> = emptyList(),
     /** 插件下载源 (设置 → 扩展): read by the engine's plugin-manager row at start. */
@@ -91,6 +102,13 @@ data class Settings(
     /** The effective selection (falls back to DeepSeek when the provider/model is gone or disabled). */
     val choice: ModelChoice get() = resolveChoice(provider, model, providers)
 
+    /** The selected third-party model's reasoning selector (null for DeepSeek, or while unknown). */
+    val reasoning: ModelReasoning? get() = choice.provider?.let { ReasoningLevels.of(it, choice.model, reasoningCatalog) }
+    /** The saved 推理强度 of the selected third-party model, null = its default. */
+    val reasoningChoice: String? get() = choice.provider?.let { reasoningChoices[ReasoningLevels.key(it.id, choice.model)] }
+    /** The level the selected third-party route sends: the saved one while the model offers it, else none. */
+    val reasoningEffort: String? get() = ReasoningLevels.effective(reasoning, reasoningChoice)
+
     companion object { const val DEFAULT_MODEL = "deepseek-flash" }
 }
 
@@ -98,6 +116,8 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 private val providerList = ListSerializer(ProviderConfig.serializer())
 private val modeList = ListSerializer(SessionMode.serializer())
 private val mcpList = ListSerializer(McpServer.serializer())
+private val choiceMap = MapSerializer(String.serializer(), String.serializer())
+private val catalogMap = MapSerializer(String.serializer(), ModelReasoning.serializer())
 
 @Singleton
 class SettingsRepository @Inject constructor(@ApplicationContext private val context: Context) {
@@ -126,6 +146,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val mcpServers = stringPreferencesKey("mcp_servers_json")
         val extUpdateBadge = intPreferencesKey("ext_update_badge")
         val autoUpdateCheck = booleanPreferencesKey("auto_update_check")
+        val reasoningChoices = stringPreferencesKey("reasoning_choices_json")
+        val reasoningCatalog = stringPreferencesKey("reasoning_catalog_json")
     }
 
     val settings: Flow<Settings> = context.store.data.map { it.toSettings() }
@@ -138,6 +160,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         modes = decodeModes(this[K.modes]),
         model = this[K.model] ?: Settings.DEFAULT_MODEL,
         effort = Effort.of(this[K.effort]),
+        reasoningChoices = decodeChoices(this[K.reasoningChoices]),
+        reasoningCatalog = this[K.reasoningCatalog]?.let { runCatching { json.decodeFromString(catalogMap, it) }.getOrNull() } ?: emptyMap(),
         disabledGroups = this[K.disabledGroups]?.mapNotNull(ToolGroup::of)?.toSet() ?: emptySet(),
         notificationBlocked = this[K.notifBlocked] ?: emptySet(),
         floatingBall = this[K.ball] ?: false,
@@ -175,6 +199,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val cur = it[K.providers]?.let { s -> runCatching { json.decodeFromString(providerList, s) }.getOrNull() } ?: emptyList()
         it[K.providers] = json.encodeToString(providerList, cur.filter { c -> c.id != id })
         if (it[K.provider] == id) { it[K.provider] = ""; it[K.model] = Settings.DEFAULT_MODEL }
+        // A later provider may get the same route id: it starts from its models' defaults.
+        it[K.reasoningChoices] = json.encodeToString(choiceMap, decodeChoices(it[K.reasoningChoices]).filterKeys { k -> !k.startsWith("$id/") })
     }
     /** Adds or replaces a user mode (built-in ids are refused: built-ins are duplicated, not edited). */
     suspend fun saveMode(m: SessionMode) {
@@ -190,6 +216,11 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         it[K.modes] = json.encodeToString(modeList, decodeModes(it[K.modes]).filter { c -> c.id != id })
     }
     suspend fun setEffort(effort: Effort) = context.store.edit { it[K.effort] = effort.id }
+    /** 推理强度 of one third-party model; [level] null = the model's default. */
+    suspend fun setReasoningChoice(provider: String, model: String, level: String?) = context.store.edit {
+        it[K.reasoningChoices] = json.encodeToString(choiceMap, withChoice(decodeChoices(it[K.reasoningChoices]), provider, model, level))
+    }
+    suspend fun setReasoningCatalog(catalog: Map<String, ModelReasoning>) = context.store.edit { it[K.reasoningCatalog] = json.encodeToString(catalogMap, catalog) }
     suspend fun setGroupEnabled(group: ToolGroup, enabled: Boolean) = context.store.edit {
         val cur = it[K.disabledGroups] ?: emptySet()
         it[K.disabledGroups] = if (enabled) cur - group.id else cur + group.id
@@ -227,6 +258,15 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
     suspend fun deleteMcpServer(id: String) = context.store.edit {
         it[K.mcpServers] = json.encodeToString(mcpList, decodeMcp(it[K.mcpServers]).filter { c -> c.id != id })
     }
+}
+
+internal fun decodeChoices(raw: String?): Map<String, String> =
+    raw?.let { runCatching { json.decodeFromString(choiceMap, it) }.getOrNull() } ?: emptyMap()
+
+/** [choices] with [provider] + [model] set to [level] (null removes it: the model's default). */
+internal fun withChoice(choices: Map<String, String>, provider: String, model: String, level: String?): Map<String, String> {
+    val k = ReasoningLevels.key(provider, model)
+    return if (level == null) choices - k else choices + (k to level)
 }
 
 internal fun decodeMcp(raw: String?): List<McpServer> =

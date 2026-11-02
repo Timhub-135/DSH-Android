@@ -80,7 +80,22 @@ written; `apiKeyEnv` only when a key is stored (an open endpoint gets no credent
 the value `/models` reported (`context_length`, `context_window`, `max_model_len`, `max_context_length`,
 `top_provider.*`, `max_completion_tokens`, …) › 131072 / 16384. Window clamped to 4096–10M; the output cap to half the
 window when set by hand, a quarter otherwise; `headroomTokens` is min(16384, window/8). The composer's context ring
-uses the same window and names its source. No reasoning effort is configured: the adapter applies the model family's documented default.
+uses the same window and names its source.
+
+Reasoning control (#46): without a user declaration a model's `capabilities` carry only `modalities`, and the adapter's
+family table (matched on the model id) decides its levels and default level. 设置 → 模型服务 → 模型设置 「推理控制」
+declares it for ids the table does not know or misreads, written into `capabilities` (js patch 22 makes a declaration
+replace the family's levels and default; a `thinkingStyle` is what marks it declared, since the schema turns an absent
+list into `[]`):
+
+| 推理控制 | `capabilities` | Levels (wire) |
+|---|---|---|
+| 自动 | (nothing) | the family's |
+| 无 | `effort: [], thinking: [], thinkingStyle: "effort_only"` | none; nothing is sent, not even a family default |
+| 推理档位 | `effort: [<ticked>], thinking: [], thinkingStyle: "effort_only"` | the ticked levels (`reasoning_effort`) |
+| 思考开关 | `effort: [], thinking: ["enabled","disabled"], thinkingStyle: "enable_thinking" \| "thinking"` | enabled / disabled (`enable_thinking: bool` or `thinking: {type}`) |
+
+The composer offers exactly the levels the engine reports (`android/models/reasoning`, §2) plus 默认.
 Route ids are the preset id (`kimi`, then `kimi-2`, …), never `deepseek-*`.
 
 Provider headers (js patch 18; 设置 → 模型服务 → 高级设置, the OpenCode Go preset): `"headers":{name:value}` for
@@ -115,11 +130,21 @@ an offset past its log (`LogSeqs`), never treating a seq as a cross-generation i
   `provider` is `deepseek-official` when an API key is set, else `deepseek-account` when a DeepSeek account is signed in
   (dsh's `initializeDefaultModel` precedence: the account route only without a key), else `deepseek-official` (the engine
   still starts so the user can sign in; the app refuses prompts with "当前模型暂不可用，请登录后再试"). With a third-party model selected
-  (设置 → 模型服务), `provider` is that provider's route id (§1.1), `model` its model id, and `reasoningEffort` is
-  omitted. If that route fails `initialize`, the engine is initialized on the DeepSeek route instead (so sign-in still
+  (设置 → 模型服务), `provider` is that provider's route id (§1.1), `model` its model id, and `reasoningEffort` the level
+  the user picked for that model in the composer (saved per route + model), sent only while the engine's last
+  `android/models/reasoning` answer lists it for the model; 默认, or a saved level the model no longer offers, omits it
+  (the adapter then applies the family's default level, or nothing). dsh refuses any other level
+  (`UNSUPPORTED_REASONING_EFFORT`), which would fail the route. If that route fails `initialize`, the engine is initialized on the DeepSeek route instead (so sign-in still
   works) and prompts fail with the route's error until the configuration changes. The app reads
-  `account/state` before `initialize`. A route change (provider, model or effort) re-sends `initialize` while no SDK
+  `account/state`, then `android/models/reasoning` (below), before `initialize`. A route change (provider, model or effort) re-sends `initialize` while no SDK
   session is open in the process (patch-free: the server just replaces its route), otherwise restarts the idle engine.
+- `android/models/reasoning { models: [{ provider, model }] }` → `{ models: [{ provider, model, efforts: [{ id, name }],
+  defaultEffort? } | { provider, model, error }] }` (plugin-guard, through patch 10; #46): each third-party model's
+  reasoning selector as dsh's llm runtime resolves it (`resolveModelInfo` → the adapter's family table or the profile's
+  declaration, §1.1): the levels `initialize` accepts, the adapter's labels, the level applied when none is sent.
+  `efforts: []` = no reasoning control. Works before `initialize`. The app sends it after every engine start for all
+  enabled third-party models and stores the answer; the composer's 推理强度 section lists exactly these levels plus
+  默认 (none when `efforts` is empty or the engine has not answered yet).
 - `session/prompt`, `session/resume`, `shutdown`. There is no per-session cancel: stopping a run stops the engine.
   `session/prompt` also accepts an optional `clientTimeZone` (IANA); the app does not send it, so the engine uses its
   process `TZ` (patch 11). Each request carries a
@@ -383,7 +408,7 @@ later, or send an SMS twice after a retry). The rules:
   Shizuku > accessibility clicks), whose "works while locked" examples are derived from `needsUnlock:false`
   descriptors; unattended-run context; post-turn reflection for the App 经验库 (`experience.js`: one tool-free call
   with the session's model over a ≤3k-char step trace, metered into the budget ledger); dsh `ctx.logger` warnings/errors mirrored to stderr (`[dsh:<name>] warn: …` in
-  engine.log).
+  engine.log); third-party models' reasoning levels for the composer (`android/models/reasoning`, §2).
 - Profile also mounts `dsh-time-context` and `dsh-tool-ask-user`, and disables `otel` and `llm-pi-ai` (cold start:
   ~1000 → ~500 modules at boot; build-engine prunes the provider SDKs only pi-ai reaches). Third-party models go
   through `llm-service-lite` instead (`@snnh/dsh-llm-service-lite` 0.2.1, MIT, vendored as built in

@@ -227,6 +227,7 @@ fun ComposerSlot(vm: ConversationController, composer: ComposerState, settings: 
             composer, live.running, live.preset, vm::setPreset, settings.choice, settings.providers, settings.effort, vm::setModel, vm::setEffort, conv.contextTokens,
             onSend = { voice.cancel(); send() },
             onStop = { vm.stop() },
+            reasoning = settings.reasoning, reasoningChoice = settings.reasoningChoice, onReasoning = vm::setReasoning,
             hero = hero,
             actions = ComposerActions(
                 onNewSession = if (conv.isEmpty) null else ({ vm.newSession() }),

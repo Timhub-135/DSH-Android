@@ -14,6 +14,7 @@ import io.github.jackwener.dsh.core.account.AccountRepository
 import io.github.jackwener.dsh.core.capability.CapabilityHub
 import io.github.jackwener.dsh.core.data.SecretStore
 import io.github.jackwener.dsh.core.data.SettingsRepository
+import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.provider.renderProfilePatch
 import io.github.jackwener.dsh.core.session.SessionStore
 import kotlinx.coroutines.CompletableDeferred
@@ -32,8 +33,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
 import java.util.Locale
@@ -55,8 +58,9 @@ class EngineStartException(message: String, val log: String?, cause: Throwable) 
 class EngineBackgroundStartException(cause: Throwable) : Exception("foreground service start not allowed from the background", cause)
 
 /**
- * The process-wide SDK route (`initialize`): provider + model + effort ([effort] is the Effort id;
- * "" for third-party routes, which use the model family's own default and send none).
+ * The process-wide SDK route (`initialize`): provider + model + effort ([effort] is the Effort id for
+ * DeepSeek, a level the engine reported for a third-party model (#46), or "" to send none: the
+ * model's own default).
  */
 data class EngineRoute(val provider: String, val model: String, val effort: String)
 
@@ -125,7 +129,10 @@ class EngineManager @Inject constructor(
 
     private fun wantedRoute(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean): EngineRoute {
         val choice = st.choice
-        choice.provider?.let { return EngineRoute(it.id, choice.model, "") }
+        choice.provider?.let { p ->
+            val reasoning = ReasoningLevels.of(p, choice.model, engineReasoning ?: st.reasoningCatalog)
+            return EngineRoute(p.id, choice.model, ReasoningLevels.effective(reasoning, st.reasoningChoice).orEmpty())
+        }
         return EngineRoute(if (!hasKey && account.get().signedIn) "deepseek-account" else "deepseek-official", choice.model, st.effort.id)
     }
 
@@ -152,6 +159,8 @@ class EngineManager @Inject constructor(
         return md.digest().joinToString("") { "%02x".format(it) }
     }
     @Volatile private var activeFingerprint: String? = null
+    /** Reasoning levels the running engine reported (null until it answers); [wantedRoute] prefers them to the stored copy. */
+    @Volatile private var engineReasoning: Map<String, io.github.jackwener.dsh.core.provider.ModelReasoning>? = null
     /** A third-party route that failed to initialize in this generation, and why. */
     @Volatile private var failedRoute: Pair<EngineRoute, String>? = null
 
@@ -219,6 +228,26 @@ class EngineManager @Inject constructor(
         Log.i(TAG, "SDK route ${route.provider}/${route.model}/${route.effort}")
     }
 
+    /**
+     * Ask the engine for every third-party model's reasoning levels (`android/models/reasoning`,
+     * plugin-guard; #46) and store them: the composer lists them, and [wantedRoute] sends a saved
+     * level only while the model offers it. Unanswered (timeout, error) keeps the stored catalog.
+     */
+    private suspend fun refreshReasoning(peer: JsonRpcPeer, st: io.github.jackwener.dsh.core.data.Settings) {
+        val routes = st.providers.filter { it.enabled && it.models.isNotEmpty() && it.baseUrl.isNotBlank() }.flatMap { p -> p.models.map { p to it } }
+        if (routes.isEmpty()) return
+        val result = runCatching {
+            withTimeout(30_000) {
+                peer.request("android/models/reasoning", buildJsonObject {
+                    putJsonArray("models") { routes.forEach { (p, m) -> addJsonObject { put("provider", p.id); put("model", m) } } }
+                })
+            }
+        }.onFailure { Log.w(TAG, "android/models/reasoning unavailable", it) }.getOrNull() ?: return
+        val catalog = ReasoningLevels.parse(result) { provider, model -> st.providers.firstOrNull { it.id == provider }?.limits?.get(model)?.reasoning }
+        engineReasoning = catalog
+        runCatching { settings.setReasoningCatalog(catalog) }.onFailure { Log.w(TAG, "could not store reasoning levels", it) }
+    }
+
     private suspend fun startLocked(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean): JsonRpcPeer {
         _state.value = EngineState.Starting
         val t0 = System.currentTimeMillis()
@@ -259,6 +288,9 @@ class EngineManager @Inject constructor(
             runCatching { withTimeout(90_000) { peer.request("account/state") } }
                 .onSuccess { account.get().onEngineView(it) }
                 .onFailure { Log.w(TAG, "account/state unavailable", it) }
+            // Before `initialize`: the route's reasoning level must be one this engine accepts.
+            engineReasoning = null
+            refreshReasoning(peer, st)
             val tBooted = System.currentTimeMillis()
             val want = wantedRoute(st, hasKey)
             failedRoute = null

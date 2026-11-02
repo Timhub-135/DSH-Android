@@ -68,7 +68,9 @@ import io.github.jackwener.dsh.R
 import io.github.jackwener.dsh.core.data.Effort
 import io.github.jackwener.dsh.core.provider.DEEPSEEK_MODELS
 import io.github.jackwener.dsh.core.provider.ModelChoice
+import io.github.jackwener.dsh.core.provider.ModelReasoning
 import io.github.jackwener.dsh.core.provider.ProviderConfig
+import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.designsystem.Chevron
 import io.github.jackwener.dsh.core.designsystem.DIcon
 import io.github.jackwener.dsh.core.designsystem.DMenu
@@ -214,6 +216,11 @@ fun Composer(
     onManageModes: (() -> Unit)? = null,
     /** Speech input (mic button + status line); null hides it. */
     voice: io.github.jackwener.dsh.feature.voice.VoiceInput? = null,
+    /** The selected third-party model's levels as the engine reported them (null / empty: no 推理强度 section). */
+    reasoning: ModelReasoning? = null,
+    /** Its saved level (null = the model's default); a level it no longer offers shows as 默认. */
+    reasoningChoice: String? = null,
+    onReasoning: (String?) -> Unit = {},
 ) {
     val c = Dsh.colors
     val context = LocalContext.current
@@ -343,8 +350,11 @@ fun Composer(
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
             if (showChips && contextTokens > 0) ContextRing(contextTokens, model.contextWindow, model.contextSource)
             if (showChips) Box(Modifier.weight(1f, fill = false)) {
-                // Third-party models have no effort selector (the model family's default level applies).
-                val effortLabel = if (model.isDeepSeek) effort.label else ""
+                // Third-party models: the levels the engine reports for them (#46); the chip names the level in effect.
+                val defaultLabel = stringResource(R.string.effort_default)
+                val reasoningMenu = if (model.isDeepSeek) null else ReasoningLevels.menu(reasoning, reasoningChoice, defaultLabel)
+                val effortLabel = if (model.isDeepSeek) effort.label
+                    else reasoning?.let { r -> r.level(ReasoningLevels.effective(r, reasoningChoice) ?: r.default)?.name }.orEmpty()
                 val modelDesc = stringResource(R.string.model_chip_desc, modelLabel(model.model), effortLabel)
                 Row(Modifier.heightIn(min = 28.dp).widthIn(max = 200.dp).clip(Radius.sm).pressable({ if (settled()) modelOpen = true }, Radius.sm)
                     .semantics(mergeDescendants = true) { contentDescription = modelDesc }.padding(start = 6.dp, end = 2.dp),
@@ -368,6 +378,18 @@ fun Composer(
                         MenuDivider()
                         MenuSectionTitle(stringResource(R.string.effort))
                         Effort.entries.forEach { e -> MenuItem(e.label, { modelOpen = false; onEffort(e) }, null, stringResource(effortDesc(e)), selected = e == effort) }
+                    }
+                    if (reasoningMenu != null) {
+                        MenuDivider()
+                        MenuSectionTitle(stringResource(R.string.effort))
+                        reasoningMenu.forEach { e ->
+                            val desc = when {
+                                e.id == null -> stringResource(R.string.effort_default_desc)
+                                e.isDefault -> stringResource(R.string.effort_is_default)
+                                else -> null
+                            }
+                            MenuItem(e.name, { modelOpen = false; onReasoning(e.id) }, null, desc, selected = e.selected)
+                        }
                     }
                     if (modelChangePending) Text(stringResource(R.string.model_applies_next), Modifier.padding(8.dp), style = DshType.xxs12, color = c.labelCaption)
                 }

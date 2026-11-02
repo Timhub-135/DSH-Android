@@ -11,6 +11,7 @@ current upstream release; the line numbers in our patches are against the versio
 | 16 `llm-lite-usage-null-parse-errors` | `@snnh/dsh-llm-service-lite` 0.2.1 | snnh/dsh-llm-service-lite | no | yes, as is |
 | 17 `llm-lite-reasoning-echo-gateway-compat` | `@snnh/dsh-llm-service-lite` 0.2.1 | snnh/dsh-llm-service-lite | no | yes; best split into 3 PRs (below) |
 | 18 `llm-lite-route-headers-model-access` | `@snnh/dsh-llm-service-lite` 0.2.1 | snnh/dsh-llm-service-lite | `userAgent` default is ours; the rest no | yes, as 2 PRs (below) |
+| 22 `llm-lite-declared-reasoning` | `@snnh/dsh-llm-service-lite` 0.2.1 | snnh/dsh-llm-service-lite | no | yes, as a semantics question first (below) |
 
 Only patch 15 targets dsh itself. 14, 16, 17 and 18 target the community adapter; dsh's own
 `dsh-llm-deepseek` adapter is not patched. One dsh-side note belongs with 17 (see "dsh core" below).
@@ -210,6 +211,27 @@ AUTH / INVALID_REQUEST.
 > model …" all mean the key is fine but the account may not use this model. They classify as AUTH
 > (or INVALID_REQUEST), so front ends tell the user to fix the key. Proposal: a `MODEL_NOT_AVAILABLE`
 > code (not retryable) keeping the server's message. Fixtures for each provider included.
+
+## 22: a profile's reasoning declaration replaces the family's
+
+**What it changes.** `resolveModel` falls back to the family table per list: an empty `effort`
+(which the config schema materializes for an absent list) takes the family's effort levels and default
+level, and declared `thinking` modes lose to the family's effort levels. A profile therefore cannot
+say "this id is a thinking switch" or "this id takes no reasoning parameter" when its name matches a
+family with effort levels (a renamed gateway model, a fine-tune behind a known prefix). With the patch,
+declared effort levels, thinking modes or a `thinkingStyle` state the whole control (no family default
+level); a style with no levels means none. Undeclared profiles behave as before.
+
+**Draft issue** (snnh/dsh-llm-service-lite):
+
+> **A profile cannot override the family table's reasoning levels with fewer, other or none**
+>
+> For `my-gw/kimi-k3-proxy` (family `kimi-k3`: effort low/high/max, default max) a profile with
+> `capabilities: { thinking: ["enabled","disabled"], thinkingStyle: "thinking" }` still offers the
+> family's effort levels and sends `reasoning_effort: "max"` by default, and `effort: []` cannot turn
+> the control off because the schema turns an absent list into `[]` too. Proposal: treat any declared
+> level list or `thinkingStyle` as the model's whole reasoning declaration. Tests:
+> `js/test/provider-reasoning.test.mjs`.
 
 ## Not upstream material
 

@@ -1,0 +1,43 @@
+DSH-Android patch 22: llm-service-lite (vendored @snnh/dsh-llm-service-lite 0.2.1), a profile's
+reasoning declaration replaces the family table's. Applies on top of 14, 16, 17, 18.
+
+The app lets the user declare a model's reasoning control (provider editor → 推理控制, #46) for ids
+the family table does not know or misreads. Upstream `resolveModel` took each of `effort` and
+`thinking` from the family when the profile's list was empty (the config schema materializes an
+absent list as `[]`), kept the family's effort levels (which win over thinking modes) when the
+profile declared `thinking` only, and kept the family's default level whenever `effort` was empty.
+So neither "a thinking switch" nor "no reasoning control" could be declared for an id whose family
+has effort levels. Now a profile that declares effort levels, thinking modes or a `thinkingStyle`
+states the whole control: its own lists (empty ones included) and no family default level; a style
+with no levels means no control. A profile that declares none of the three inherits the family's
+levels and default, as before.
+
+--- a/@snnh/dsh-llm-service-lite/lib/index.js
++++ b/@snnh/dsh-llm-service-lite/lib/index.js
+@@ -1545,8 +1545,15 @@
+ 	const family = familyFactsOf(model.id);
+ 	if (family.replayRequired && capabilities.replayReasoning === false) throw new Error(`llm-service-lite: provider "${provider}" model "${model.id}" turns off reasoning replay, but family "${family.family}" requires it on every follow-up turn`);
+ 	const replayReasoning = family.replayRequired ? true : capabilities.replayReasoning ?? capabilities.reasoningContent ?? family.replayReasoning;
+-	const effort = capabilities.effort === void 0 || capabilities.effort.length === 0 ? [...family.effort] : [...capabilities.effort];
+-	const thinking = capabilities.thinking === void 0 || capabilities.thinking.length === 0 ? [...family.thinking] : [...capabilities.thinking];
++	// DSH-Android (patch 22): a profile that declares effort levels, thinking modes or a thinking style
++	// states the model's whole reasoning control, so an id the family table misreads or does not know
++	// can be given its real levels, a thinking switch, or none (a style with no levels); the family's
++	// levels and default level apply only when it declares none of the three. Upstream each list fell
++	// back to the family's on its own (the schema materializes an absent list as []), and the family's
++	// effort levels win over declared modes, so neither a switch nor "no control" could be declared.
++	const declaresReasoning = (capabilities.effort?.length ?? 0) > 0 || (capabilities.thinking?.length ?? 0) > 0 || capabilities.thinkingStyle !== void 0;
++	const effort = declaresReasoning ? [...capabilities.effort ?? []] : [...family.effort];
++	const thinking = declaresReasoning ? [...capabilities.thinking ?? []] : [...family.thinking];
+ 	return {
+ 		id: model.id,
+ 		name: model.name ?? model.id,
+@@ -1556,7 +1563,7 @@
+ 		family: family.family,
+ 		modalities: modalities.length === 0 ? [...family.modalities] : [...modalities],
+ 		effort,
+-		effortDefault: capabilities.effort === void 0 || capabilities.effort.length === 0 ? family.effortDefault : void 0,
++		effortDefault: declaresReasoning ? void 0 : family.effortDefault,
+ 		thinking,
+ 		thinkingStyle: capabilities.thinkingStyle ?? family.thinkingStyle,
+ 		reasoningContent: capabilities.reasoningContent ?? family.reasoningContent,

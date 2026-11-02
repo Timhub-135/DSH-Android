@@ -86,6 +86,9 @@
     <string name="effort_low_desc">Faster and cheaper.</string>
     <string name="effort_high_desc">The default balance for most tasks.</string>
     <string name="effort_max_desc">Reserve for the hardest quality-first tasks.</string>
+    <string name="effort_default">Default</string>
+    <string name="effort_default_desc">No level set: the model\'s own default</string>
+    <string name="effort_is_default">The model\'s default level</string>
     <string name="model_applies_next">Applies after the current run</string>
     <string name="preset_read_only">Read only</string>
     <string name="preset_ask">Ask to act</string>
@@ -698,7 +701,7 @@
     <string name="prov_err_url">Enter a base URL starting with https:// or http://</string>
     <string name="prov_err_key">Enter the API key</string>
     <string name="prov_err_models">Check at least one model</string>
-    <string name="prov_model_desc">Uses the model\'s default reasoning settings</string>
+    <string name="prov_model_desc">Third-party models: pick the effort per model in the composer\'s model menu</string>
     <string name="prov_context_window">Context window</string>
     <string name="prov_max_output">Max output</string>
     <string name="prov_limit_auto">Auto</string>
@@ -714,6 +717,15 @@
     <string name="prov_images_line">%1$s (%2$s)</string>
     <string name="prov_images_by_name">by model name</string>
     <string name="prov_images_hint">A text-only model never receives images, only an \"image omitted\" line, so it answers that it cannot see them. Auto uses the provider\'s model list when it says, else the model name; change it here if that is wrong.</string>
+    <string name="prov_reasoning">Reasoning control</string>
+    <string name="prov_reasoning_auto">Auto: %1$s</string>
+    <string name="prov_reasoning_auto_unknown">Auto</string>
+    <string name="prov_reasoning_none">None</string>
+    <string name="prov_reasoning_effort">Effort</string>
+    <string name="prov_reasoning_switch">Thinking</string>
+    <string name="prov_reasoning_hint">Decides which efforts the composer\'s model menu offers and how they are sent. Auto matches the model name against the engine\'s built-in model families (Kimi, GLM, Qwen, GPT…); declare it here when a custom or renamed model is not recognized: Effort sends reasoning_effort (tick the levels the endpoint accepts); Thinking is an on / off switch, sent as enable_thinking or thinking.type; None sends no reasoning parameter.</string>
+    <string name="prov_reasoning_levels_unknown">unknown (shown after the next run)</string>
+    <string name="prov_reasoning_levels_none">no reasoning control</string>
     <string name="images_text_only">%1$s is not marked as accepting images: they will not be sent, the model only sees \"image omitted\". If it can see images, turn on Settings → Model services → this model → Image input.</string>
     <string name="images_text_only_deepseek">%1$s does not accept images: they will not be sent. Switch to DeepSeek-V4.1-Flash for the model to see them.</string>
     <string name="prov_err_limits">Context window and max output must be positive whole numbers</string>

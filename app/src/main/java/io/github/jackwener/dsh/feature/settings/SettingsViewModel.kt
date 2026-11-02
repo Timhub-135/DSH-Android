@@ -203,6 +203,7 @@ class SettingsViewModel @Inject constructor(
             val choice = st.choice
             val roles = mutableListOf<Pair<String, String>>()
             roles += "main model" to (choice.provider?.let { p -> "${p.id} / ${choice.model}" + if (choice.model in p.verified) " (passed test)" else " (not tested)" }
+                ?.let { it + ", effort ${st.reasoningEffort ?: "default"}" }
                 ?: "DeepSeek / ${choice.model}, effort ${st.effort.id}")
             if (st.provider.isNotEmpty() && choice.isDeepSeek) roles += "saved selection" to "${st.provider} / ${st.model} (unavailable, DeepSeek used instead)"
             val runs = runCatching { sessionDao.recentRunEnds(DiagnosticsReport.RUNS) }.getOrDefault(emptyList())

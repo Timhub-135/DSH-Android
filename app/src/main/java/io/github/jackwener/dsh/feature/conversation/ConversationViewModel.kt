@@ -79,7 +79,7 @@ open class ConversationController(
         val want = st.choice
         val differs = route != null && when (val p = want.provider) {
             null -> !route.provider.startsWith("deepseek-") || route.model != want.model || route.effort != st.effort.id
-            else -> route.provider != p.id || route.model != want.model
+            else -> route.provider != p.id || route.model != want.model || route.effort != st.reasoningEffort.orEmpty()
         }
         differs && status.values.any { it != RowStatus.Idle }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -143,6 +143,12 @@ open class ConversationController(
     /** [provider] "" = DeepSeek. */
     fun setModel(provider: String, m: String) = viewModelScope.launch { settingsRepo.setModel(provider, m) }
     fun setEffort(e: Effort) = viewModelScope.launch { settingsRepo.setEffort(e) }
+    /** 推理强度 of the selected third-party model ([level] null = its default). */
+    fun setReasoning(level: String?) = viewModelScope.launch {
+        val choice = settings.value.choice
+        val p = choice.provider ?: return@launch
+        settingsRepo.setReasoningChoice(p.id, choice.model, level)
+    }
 
     /** The screen is in front again: its session counts as seen (unread dot, notification). */
     fun markSeen() = store.setViewing(this, id)

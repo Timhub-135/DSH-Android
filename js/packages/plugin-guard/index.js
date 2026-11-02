@@ -19,6 +19,8 @@
 //  5. dsh runtime warnings/errors (ctx.logger) mirrored to stderr = engine.log.
 //  6. Long tasks (continuation.js): a root turn the model ends with open todos (or a claim that it
 //     goes on by itself) continues with a nudge, capped; every turn end records its reason.
+//  7. Model reasoning levels for the app's composer (`android/models/reasoning`, #46): what dsh's
+//     llm runtime resolves for each third-party model, so the app offers only levels the route accepts.
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix } from 'node:path'
@@ -292,6 +294,35 @@ function remember(map, key, value, max = 500) {
   while (map.size > max) map.delete(map.keys().next().value)
 }
 
+/**
+ * The reasoning selector of each named model route, as dsh's llm runtime resolves it (the adapter's
+ * `resolveModel`, validated by `resolveModelInfo`): the levels `initialize { reasoningEffort }`
+ * accepts, with the adapter's labels, and the level applied when none is sent. A route that cannot
+ * be resolved (not registered, refused by the adapter) answers its error instead.
+ * @param llm - dsh's `llm` service.
+ * @param models - `[{ provider, model }]`.
+ * @returns `{ models: [{ provider, model, efforts: [{ id, name }], defaultEffort? } | { provider, model, error }] }`.
+ */
+export async function reasoningLevels(llm, models) {
+  if (!Array.isArray(models) || models.some(m => typeof m?.provider !== 'string' || typeof m?.model !== 'string' || m.provider === '' || m.model === ''))
+    throw new TypeError('android/models/reasoning: models must be an array of { provider, model } strings')
+  if (llm === undefined) throw new Error('android/models/reasoning: the llm service is not available')
+  const out = []
+  for (const { provider, model } of models) {
+    try {
+      const reasoning = (await llm.resolveModelInfo(provider, model)).reasoning
+      out.push({
+        provider, model,
+        efforts: (reasoning?.efforts ?? []).map(e => ({ id: String(e.id), name: String(e.name) })),
+        ...reasoning?.defaultEffort === undefined ? {} : { defaultEffort: String(reasoning.defaultEffort) },
+      })
+    } catch (error) {
+      out.push({ provider, model, error: String(error?.message ?? error) })
+    }
+  }
+  return { models: out }
+}
+
 export function apply(ctx, config = {}) {
   const askTools = new Set(Array.isArray(config.askTools) ? config.askTools : ['bash', 'write', 'edit'])
   const prices = { ...DEFAULT_PRICES, ...(config.prices ?? {}) }
@@ -340,6 +371,8 @@ export function apply(ctx, config = {}) {
       presetsReported = true
       return {}
     }],
+    // ── 7. reasoning levels per model route (the composer's 推理强度; #46) ──────
+    ['android/models/reasoning', params => reasoningLevels(ctx.get('llm'), params?.models)],
   ])
   ctx.on('sdk-extensions/resolve', method => methods.get(method))
 

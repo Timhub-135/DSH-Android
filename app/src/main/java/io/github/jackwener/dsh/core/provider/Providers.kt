@@ -237,9 +237,11 @@ data class ModelLimits(
     val images: Boolean? = null,
     /** Image input as the `/models` listing stated it. */
     val detectedImages: Boolean? = null,
+    /** The user's 推理控制 declaration for this model (null = automatic: the engine's family table; see ModelReasoning). */
+    val reasoning: ReasoningDecl? = null,
 ) {
     val isEmpty get() = contextWindow == null && maxTokens == null && detectedContextWindow == null && detectedMaxTokens == null &&
-        images == null && detectedImages == null
+        images == null && detectedImages == null && reasoning == null
 }
 
 /** Where an effective limit came from (shown next to the value). */
@@ -373,7 +375,11 @@ fun renderProfilePatch(providers: List<ProviderConfig>, webSearch: Boolean, user
                                     put("maxTokens", l.maxTokens)
                                     putJsonObject("defaults") { put("maxTokens", l.maxTokens) }
                                     // Always declared (#39): the engine's own table treats unknown ids as text only.
-                                    putJsonObject("capabilities") { putJsonArray("modalities") { add("text"); if (p.acceptsImages(m)) add("image") } }
+                                    putJsonObject("capabilities") {
+                                        putJsonArray("modalities") { add("text"); if (p.acceptsImages(m)) add("image") }
+                                        // #46: only a user declaration; without one the engine's family table decides.
+                                        p.limits[m]?.reasoning?.writeTo(this)
+                                    }
                                 }
                             }
                         }

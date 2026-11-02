@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +41,7 @@ import io.github.jackwener.dsh.core.designsystem.DInput
 import io.github.jackwener.dsh.core.designsystem.DSwitch
 import io.github.jackwener.dsh.core.designsystem.Dsh
 import io.github.jackwener.dsh.core.designsystem.DshType
+import io.github.jackwener.dsh.core.designsystem.FilterPill
 import io.github.jackwener.dsh.core.designsystem.Fmt
 import io.github.jackwener.dsh.core.designsystem.IconBtn
 import io.github.jackwener.dsh.core.designsystem.Radius
@@ -63,6 +66,10 @@ import io.github.jackwener.dsh.core.provider.planSave
 import io.github.jackwener.dsh.core.provider.rankCandidates
 import io.github.jackwener.dsh.core.provider.LimitSource
 import io.github.jackwener.dsh.core.provider.ModelLimits
+import io.github.jackwener.dsh.core.provider.ModelReasoning
+import io.github.jackwener.dsh.core.provider.ReasoningControl
+import io.github.jackwener.dsh.core.provider.ReasoningDecl
+import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.provider.NetDiagnose
 import io.github.jackwener.dsh.core.provider.NetDiagnosis
 import io.github.jackwener.dsh.core.provider.PRESETS
@@ -220,12 +227,14 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
     }
     // 图片输入 per model: the user's choice (absent = automatic: listing, then the name; ModelVision).
     val imageOverrides = remember { mutableStateMapOf<String, Boolean>().apply { existing?.limits?.forEach { (m, l) -> l.images?.let { put(m, it) } } } }
+    // 推理控制 per model (#46): the user's declaration (absent = automatic: the engine's family table; ModelReasoning.kt).
+    val reasoningDecls = remember { mutableStateMapOf<String, ReasoningDecl>().apply { existing?.limits?.forEach { (m, l) -> l.reasoning?.let { put(m, it) } } } }
     var editing by remember { mutableStateOf<String?>(null) }
     fun stored(m: String, withOverride: Boolean = true): ModelLimits {
         val o = overrides[m].takeIf { withOverride }
         val d = detected[m]
         return ModelLimits(o?.first?.let(::tokensOrNull), o?.second?.let(::tokensOrNull)?.toIntSat(), d?.contextWindow, d?.maxTokens,
-            images = imageOverrides[m].takeIf { withOverride }, detectedImages = d?.images)
+            images = imageOverrides[m].takeIf { withOverride }, detectedImages = d?.images, reasoning = reasoningDecls[m].takeIf { withOverride })
     }
     fun live(m: String, withOverride: Boolean = true): EffectiveLimits =
         ThirdParty.resolve(stored(m, withOverride), tokensOrNull(ctxText), tokensOrNull(maxText)?.toIntSat())
@@ -403,7 +412,7 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconBtn(R.drawable.dsw_edit_outline, { editing = if (editing == m) null else m }, size = 32.dp, iconSize = 14.dp,
-                            tint = if (m in overrides || m in imageOverrides) c.link else c.labelTertiary, contentDescription = stringResource(R.string.prov_model_limits))
+                            tint = if (m in overrides || m in imageOverrides || m in reasoningDecls) c.link else c.labelTertiary, contentDescription = stringResource(R.string.prov_model_limits))
                         DCheckbox(on, { if (it) selected.add(m) else selected.remove(m) })
                     }
                 })
@@ -431,6 +440,8 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
                         when (imageOverrides[m]) { null -> 0; true -> 1; false -> 2 },
                         { i -> if (i == 0) imageOverrides.remove(m) else imageOverrides[m] = i == 1 }, compact = true)
                     Text(stringResource(R.string.prov_images_hint), style = DshType.xxs12, color = c.labelTertiary)
+                    ReasoningControlEditor(reasoningDecls[m], { if (it == null) reasoningDecls.remove(m) else reasoningDecls[m] = it },
+                        auto = existing?.let { p -> s.reasoningCatalog[ReasoningLevels.key(p.id, m)]?.takeIf { it.decl == null } })
                 }
             }
         }
@@ -468,6 +479,51 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
             }, size = BtnSize.Sm, enabled = testing == null)
         }
     }
+}
+
+/**
+ * 推理控制 of one model (#46): 自动 (the engine's family table; [auto] is what the engine last
+ * reported for it, null = not known yet) · 无 · 推理档位 (`reasoning_effort`, the ticked levels) ·
+ * 思考开关 (`enable_thinking` or `thinking.type`). Written into the engine profile (Providers.kt).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReasoningControlEditor(decl: ReasoningDecl?, onChange: (ReasoningDecl?) -> Unit, auto: ModelReasoning?) {
+    val c = Dsh.colors
+    Text(stringResource(R.string.prov_reasoning), style = DshType.xxs12, color = c.labelSecondary)
+    Segmented(listOf(stringResource(R.string.prov_reasoning_auto_unknown), stringResource(R.string.prov_reasoning_none),
+        stringResource(R.string.prov_reasoning_effort), stringResource(R.string.prov_reasoning_switch)),
+        when (decl?.control) { null -> 0; ReasoningControl.None -> 1; ReasoningControl.Effort -> 2; else -> 3 },
+        { i ->
+            onChange(when (i) {
+                0 -> null
+                1 -> ReasoningDecl(ReasoningControl.None)
+                2 -> decl?.takeIf { it.control == ReasoningControl.Effort } ?: ReasoningDecl(ReasoningControl.Effort, ReasoningLevels.EFFORT_START)
+                else -> decl?.takeIf { it.control == ReasoningControl.EnableThinking || it.control == ReasoningControl.ThinkingType } ?: ReasoningDecl(ReasoningControl.EnableThinking)
+            })
+        }, compact = true)
+    when (decl?.control) {
+        null -> {
+            val levels = when {
+                auto == null -> stringResource(R.string.prov_reasoning_levels_unknown)
+                auto.levels.isEmpty() -> stringResource(R.string.prov_reasoning_levels_none)
+                else -> auto.levels.joinToString(" / ") { it.name } + (auto.level(auto.default)?.let { " · " + stringResource(R.string.effort_default) + " " + it.name } ?: "")
+            }
+            Text(stringResource(R.string.prov_reasoning_auto, levels), style = DshType.xxs12, color = c.labelTertiary)
+        }
+        ReasoningControl.Effort -> FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ReasoningLevels.EFFORT.forEach { l ->
+                val on = l in decl.levels
+                // At least one level stays ticked (none would mean 无).
+                FilterPill(l, on) { if (!on) onChange(decl.copy(levels = decl.levels + l)) else if (decl.levels.size > 1) onChange(decl.copy(levels = decl.levels - l)) }
+            }
+        }
+        ReasoningControl.EnableThinking, ReasoningControl.ThinkingType ->
+            Segmented(listOf("enable_thinking", "thinking.type"), if (decl.control == ReasoningControl.EnableThinking) 0 else 1,
+                { onChange(ReasoningDecl(if (it == 0) ReasoningControl.EnableThinking else ReasoningControl.ThinkingType)) }, compact = true)
+        ReasoningControl.None -> {}
+    }
+    Text(stringResource(R.string.prov_reasoning_hint), style = DshType.xxs12, color = c.labelTertiary)
 }
 
 /** https:// for cloud services, or plain http:// for a gateway on the user's own LAN (#5). */

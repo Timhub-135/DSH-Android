@@ -186,6 +186,7 @@ grep -q 'describeTransportCause' "$NM/@snnh/dsh-llm-service-lite/lib/index.js" |
 grep -q 'patch 16' "$NM/@snnh/dsh-llm-service-lite/lib/index.js" || die "llm-service-lite usage-null / parse-error patch missing"
 grep -q 'patch 17' "$NM/@snnh/dsh-llm-service-lite/lib/index.js" || die "llm-service-lite reasoning echo / gateway compatibility patch missing"
 grep -q 'patch 18' "$NM/@snnh/dsh-llm-service-lite/lib/index.js" || die "llm-service-lite route headers / model access patch missing"
+grep -q 'patch 22' "$NM/@snnh/dsh-llm-service-lite/lib/index.js" || die "llm-service-lite declared reasoning patch (22) missing"
 grep -q 'patch 15' "$NM/@deepseek-ai/dsh-http-proxy/lib/index.js" || die "http-proxy exclusion-glob patch missing"
 grep -q 'appendPluginRecord' "$NM/@deepseek-ai/dsh-session/lib/index.js" || die "dsh-session lacks appendPluginRecord (plugin-mode records its selection with it)"
 [[ -f "$NM/@dsh-android/plugin-mode/index.js" ]] || die "plugin-mode missing"
