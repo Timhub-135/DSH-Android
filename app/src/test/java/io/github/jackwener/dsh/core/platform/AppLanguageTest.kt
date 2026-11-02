@@ -29,8 +29,8 @@ class AppLanguageTest {
 
     @Test fun pickerListsTheShippedLanguagesFromLocalesConfig() {
         val langs = AppLanguage.supported(app)
-        assertEquals(listOf("zh", "en"), langs)
-        assertEquals(listOf("中文", "English"), langs.map(AppLanguage::displayName))
+        assertEquals(listOf("zh", "en", "ru"), langs)
+        assertEquals(listOf("中文", "English", "Русский"), langs.map(AppLanguage::displayName))
     }
 
     @Test fun selectionFollowsTheStoredTag() {
