@@ -1,21 +1,21 @@
 {
   "format": 1,
   "packageName": "io.github.jackwener.dsh",
-  "versionCode": 24,
-  "versionName": "0.3.6",
+  "versionCode": 25,
+  "versionName": "0.3.7",
   "minSdk": 29,
   "apk": {
-    "name": "DSH-Android-v0.3.6-arm64.apk",
-    "size": 100545885,
-    "sha256": "45ba1e2177afb91002741815bbfe9841555f989d0658fd586e82120e4a9d01e0",
+    "name": "DSH-Android-v0.3.7-arm64.apk",
+    "size": 100585702,
+    "sha256": "b08af83dc2d64d332357c488f3664f445e20eda1409a5f2f578f2d1836deb02b",
     "urls": [
-      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.6/DSH-Android-v0.3.6-arm64.apk"
+      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.7/DSH-Android-v0.3.7-arm64.apk"
     ]
   },
   "signerSha256": "2b37a375ead19476e5d0d9e38920032ea9822e880dcc7540a14e5ab6ac1f4f69",
   "notes": {
-    "zh": "- **插话立即生效**（#41）：任务进行中发的插话（插话发送、排队栏“立即发送”）马上显示在对话里，模型在当前任务的下一步就能看到，不再等这一轮结束才另开一轮。停止任务时，还没插进去的话会退回输入框\n- **悬浮球和通知能回到正在运行的对话**（#39）：后台运行时点悬浮球或进度胶囊，打开的是正在运行的那个对话，不再新开对话；点通知栏的运行通知能回到 App。适配了 HyperOS 等系统对后台打开界面的限制\n- **第三方识图模型能看到图片了**（#39）：之前不在内置列表里的识图模型（Gemini、GPT-4o、Qwen-VL、GLM-4V 等）会被当成纯文本模型，图片被替换成文字说明。现在按服务商接口返回的信息和模型名自动判断，模型编辑页可以手动设“图片输入”；图片发不到当前模型时，输入框会提示\n- **App 内切换语言**（#40）：设置 → 通用 → 语言，可选跟随系统、中文、English，Android 10–12 也能用。新增语言只需要加一份翻译文件，欢迎贡献\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
-    "en": "- **Steering takes effect immediately** (#41): messages sent while a task runs show up in the chat right away and reach the model at its next step in the same task, instead of starting a new turn afterwards. Stopping the task returns undelivered text to the composer\n- **Ball and notification open the running chat** (#39): tapping the floating ball or its capsule during a background run opens that chat instead of a new one; tapping the run notification brings the app back. Handles HyperOS-style background start limits\n- **Third-party vision models now get images** (#39): vision models missing from the built-in table (Gemini, GPT-4o, Qwen-VL, GLM-4V…) were treated as text-only and images were replaced by a note. Image input is now detected from the provider's model list and the model name, with a manual override per model; the composer warns when images won't reach the current model\n- **In-app language** (#40): Settings → General → Language (system / 中文 / English), also on Android 10–12. New languages only need a translation file — contributions welcome\n- Not yet tested on a real device"
+    "zh": "- **插件的后台会话不再发通知**（#43）：心跳、QQ 机器人这类插件开的后台会话，以前每跑一轮都弹一条内容是 JSON 的通知，点进去还找不到。现在只有会话列表里看得到的会话才发通知；也不会再出现莫名其妙的“新会话”\n- **每个会话一条通知**（#43）：标题是会话名，内容是最后一句回复的摘要，点开直达那个会话；打开会话后通知自动清除，多条会分组显示\n- **会话免打扰**（#43）：长按会话或点“…”菜单可以设免打扰，只静音“任务完成”提醒；需要你批准、回答或解锁的请求仍会通知，免得任务一直卡着\n- **Shizuku 状态说清楚**（#42）：分开显示“没装”“没启动”“没授权”“版本太旧”“可用”，每种都给出下一步怎么做，诊断信息里也写清楚\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
+    "en": "- **Plugin background sessions no longer notify** (#43): heartbeat / QQ-bot style plugin sessions used to post a JSON notification every round that led nowhere. Only conversations shown in the session list notify now, and stray \"new conversation\" entries are gone\n- **One notification per conversation** (#43): titled with the conversation name, showing a short summary of the last reply; tapping opens it, opening it clears the notification, several are grouped\n- **Mute a conversation** (#43): long-press or \"…\" menu. Mutes \"task finished\" alerts only; approvals, questions and unlock requests still notify so tasks don't stall\n- **Clearer Shizuku status** (#42): not installed / not running / not authorized / too old / ready, each with the next step, also in diagnostics\n- Not yet tested on a real device"
   },
-  "publishedAt": "2026-11-01T14:47:57Z"
+  "publishedAt": "2026-11-02T03:57:56Z"
 }
