@@ -6,8 +6,8 @@
   "minSdk": 29,
   "apk": {
     "name": "DSH-Android-v0.3.9-arm64.apk",
-    "size": 122626638,
-    "sha256": "3a54cb5db5060e03ebb1f681aa158819e7835827de6ffcc4efce2b8cd3d91060",
+    "size": 101010086,
+    "sha256": "dc012d468ec67ce21a4880bc311497d3697388b1c230adfd384655faf05b7ed0",
     "urls": [
       "https://github.com/jackwener/DSH-Android/releases/download/v0.3.9/DSH-Android-v0.3.9-arm64.apk"
     ]
@@ -17,5 +17,5 @@
     "zh": "- **修复 Google 账号登录 DeepSeek 失败**（#49，感谢 @shteudguy 的 PR #13）：整个登录流程（包括 Google 的账号选择弹窗）都留在 App 的登录页里，不再跳到浏览器报 400。如果 Google 不允许在 App 内登录，会提示改用“用浏览器登录”，在系统浏览器里登录完自动回到 App；登录页底部也能随时选这个方式\n- **引擎常驻**（#52）：设置 → 关于 → 后台保活 里新增开关，默认关闭。默认引擎在任务结束 5 分钟后自动停止以省电，心跳、QQ 机器人这类后台插件会跟着停；打开后引擎一直运行并显示常驻通知，开机、更新或意外退出后自动重新启动。装了这类插件时，扩展页会提示打开\n- **每个会话单独记住模型和推理等级**（#53）：输入框的模型按钮只改当前会话，运行中切换从下一步生效，不打断任务。设置里的是新会话的默认值；插件开的后台会话使用默认值，不会跟着前台切到高档位。会话原来的模型被删掉时会提示并改用默认\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
     "en": "- **Fixed DeepSeek sign-in with a Google account** (#49, thanks @shteudguy for PR #13): the whole sign-in, including Google's account picker, now stays in the app's sign-in page instead of failing with a 400 in the browser. If Google refuses in-app sign-in, the app offers \"Sign in with browser\", which completes in the system browser and returns to the app; that option is also always available at the bottom of the sign-in page\n- **Keep engine running** (#52): new switch under Settings → About, off by default. By default the engine stops 5 minutes after the last task to save battery, which also stops background plugins such as heartbeat or QQ bots; with the switch on it keeps running with an ongoing notification and restarts after boot, updates or crashes. The extensions page suggests it when such plugins are installed\n- **Per-conversation model and reasoning level** (#53): the model button in the composer changes only the current conversation; switching mid-task applies from the next step. Settings now holds the default for new conversations; plugin background sessions use the default. If a conversation's model is removed, it falls back to the default with a notice\n- Not yet tested on a real device"
   },
-  "publishedAt": "2026-11-03T14:59:14Z"
+  "publishedAt": "2026-11-03T15:00:45Z"
 }
