@@ -141,7 +141,7 @@ Shizuku 用户服务（shell uid，可选）：ShellUserService
 
 ## 账号登录
 
-dsh-base 自带 DeepSeek 账号 provider（OAuth + PKCE，凭据存在 `DSH_HOME`）。`plugin-account` 补上回环回调服务器，并把账号操作暴露为 SDK 方法 `account/*` 和通知 `account.*`（契约 §2.4）。授权页在 App 内的 WebView 里打开（`PlatformWebScreen`），回调到 `http://127.0.0.1:<port>/oauth/callback`（`network_security_config` 只对 127.0.0.1 和 localhost 允许明文）。完成页通过 `intent://…;scheme=dsh-android` 回到 App。路由优先级和 dsh 一致：配置了 API key 就用 `deepseek-official`，否则在已登录时用 `deepseek-account`。API key 用 Android Keystore 的 AES-GCM 加密，存在 `noBackupFilesDir`；`allowBackup=false`。
+dsh-base 自带 DeepSeek 账号 provider（OAuth + PKCE，凭据存在 `DSH_HOME`）。`plugin-account` 补上回环回调服务器，并把账号操作暴露为 SDK 方法 `account/*` 和通知 `account.*`（契约 §2.4）。授权页在 App 内的 WebView 里打开（`PlatformWebScreen`；整个 OAuth 流程的 http(s) 跳转和弹窗都留在这个 WebView 会话里。Google 拒绝内嵌浏览器时（`disallowed_useragent`），或用户点“用浏览器登录”，改为在 Custom Tab 里从头走一遍，见契约 §2.4），回调到 `http://127.0.0.1:<port>/oauth/callback`（`network_security_config` 只对 127.0.0.1 和 localhost 允许明文）。完成页通过 `intent://…;scheme=dsh-android` 回到 App。路由优先级和 dsh 一致：配置了 API key 就用 `deepseek-official`，否则在已登录时用 `deepseek-account`。API key 用 Android Keystore 的 AES-GCM 加密，存在 `noBackupFilesDir`；`allowBackup=false`。
 
 ## 模型服务（第三方模型，core/provider/）
 

@@ -674,6 +674,11 @@
     <string name="web_sign_in_title">Sign in to DeepSeek</string>
     <string name="web_platform_title">DeepSeek Platform</string>
     <string name="web_load_failed">Could not load the page. Check your network and try again.</string>
+    <string name="web_use_browser">Sign in with browser</string>
+    <string name="web_use_browser_hint">Trouble signing in?</string>
+    <string name="web_blocked_title">Google sign-in is not allowed in the app</string>
+    <string name="web_blocked_desc">Google does not allow signing in from a page inside an app. Sign in with your browser instead; DSH opens again when you are done.</string>
+    <string name="web_no_browser">No browser available. Signing in inside the app instead.</string>
     <string name="prov_group">Third-party providers</string>
     <string name="prov_group_desc">OpenAI-compatible endpoints. API keys are encrypted on this device and only handed to the engine to call the model.</string>
     <string name="prov_add">Add provider</string>

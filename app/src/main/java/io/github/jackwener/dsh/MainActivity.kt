@@ -2,6 +2,7 @@ package io.github.jackwener.dsh
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +19,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import io.github.jackwener.dsh.core.platform.Browser
+import io.github.jackwener.dsh.feature.account.SignInRouting
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -105,6 +111,17 @@ class MainActivity : ComponentActivity() {
             DshTheme(theme ?: ThemeMode.System) {
                 val c = Dsh.colors
                 LaunchedEffect(c.isDark) { account.darkTheme = c.isDark }
+                // 用浏览器登录 (#49): the authorization page in a Custom Tab on top of this task.
+                LaunchedEffect(c.isDark) {
+                    repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        account.browserRequests.collect { url ->
+                            if (!Browser.openSignIn(this@MainActivity, url, c.isDark, c.bgBase.toArgb())) {
+                                Toast.makeText(this@MainActivity, R.string.web_no_browser, Toast.LENGTH_LONG).show()
+                                account.onBrowserUnavailable(url)
+                            }
+                        }
+                    }
+                }
                 // Platform pages (sign-in, 充值, 用量): a destination of their own (PlatformPageSync).
                 val platformPage by account.page.collectAsStateWithLifecycle()
                 CompositionLocalProvider(LocalAccount provides account) {
@@ -150,11 +167,11 @@ class MainActivity : ComponentActivity() {
 
     /**
      * `dsh-android://account/login?result=…` from the engine's sign-in completion page when it was
-     * opened outside the app (the copied sign-in link); the in-app screen intercepts it itself.
+     * opened in a browser (用浏览器登录's Custom Tab, or the copied sign-in link); the in-app
+     * screen intercepts it itself.
      */
     private fun handleAppLink(intent: Intent?) {
-        val data = intent?.data ?: return
-        if (data.scheme == "dsh-android" && data.host == "account") account.onSignInReturned()
+        if (SignInRouting.isCallback(intent?.data)) account.onSignInReturned()
     }
 
     /**

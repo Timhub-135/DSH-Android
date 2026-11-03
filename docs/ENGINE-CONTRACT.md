@@ -216,8 +216,27 @@ Platform redirects the page to the loopback callback (cleartext allowed for 127.
 grant. Instead of Platform's completion page (or dsh's "close this tab" page), the callback answers with a local page that
 opens `intent://account/login?result=…#Intent;scheme=dsh-android;package=<pkg>;end` (automatically, and from a 返回 DSH
 button); the WebView intercepts that navigation and closes the screen, which also closes when the attempt settles.
-Closing the screen (✕, or Back with no page history) cancels the attempt (`account/sign-in/cancel`). The VIEW filter
-`dsh-android://account` on MainActivity remains for a sign-in link copied into another browser.
+Closing the screen (✕, or Back with no page history) cancels the attempt (`account/sign-in/cancel`).
+
+Inside that WebView every http(s) navigation stays put — tapped links, scripted navigations, redirects and popups
+(`window.open` / `target=_blank` get a child WebView over the page, same session, so `window.opener` works): the
+provider steps (Google's `signin/oauth/v3/consent?as=…&xsrf=…`, AWS WAF) are bound to the WebView's cookies, and handing
+one to another browser broke the flow (#13, #49: Google 400 malformed). Only non-web schemes leave (`intent:` for other
+apps, `mailto:`, …; `feature/account/SignInRouting.kt`).
+
+用浏览器登录 (#49): Google may refuse OAuth in an embedded WebView (RFC 8252; `Error 403: disallowed_useragent` on
+`accounts.google.com/signin/oauth/error?authError=…`, or "This browser or app may not be secure" on `…/signin/rejected`).
+The screen detects those (URL, Google page text, an HTTP error page from Google Accounts) and offers 用浏览器登录; a link
+under the page offers it at any time. It cancels the attempt shown in the WebView, starts a new one and opens its
+`authorizeUrl` in a Custom Tab (default browser's provider; plain `ACTION_VIEW` when there is none) launched from
+MainActivity, so it sits on top of the app's task; later attempts in the same process go there directly. Nothing changes
+on the engine side: the browser follows Platform's redirect to `http://127.0.0.1:<port>/oauth/callback` (loopback is
+shared by every app on the device; the engine runs in a foreground service while the attempt is active), and the
+completion page's `intent://account/login?…;scheme=dsh-android;package=<pkg>;end` (automatic, or the 返回 DSH button)
+reaches MainActivity's VIEW filter `dsh-android://account` (singleTask, which clears the Custom Tab); that filter also
+serves a sign-in link copied into another browser. The PKCE verifier and `state` stay in the engine's memory: if
+Android kills the app process while the user is in the browser, the loopback is gone with them and the user signs in
+again (the browser shows a connection error, the dialog no attempt).
 
 **Session id convention:** attended sessions use a random UUID. Sessions started by automations use `auto_<ruleId>_<uuid>`; the app auto-answers `approval/request` for these (allowed only if the tool is in the rule's whitelist, else `rejected`).
 

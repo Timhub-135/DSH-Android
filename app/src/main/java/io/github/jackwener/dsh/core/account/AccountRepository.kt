@@ -12,12 +12,15 @@ import io.github.jackwener.dsh.core.session.s
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -48,6 +51,12 @@ import javax.inject.Singleton
  * the flow never leaves the app whatever the default browser is), closes it when the attempt
  * settles, and keeps a small display cache (name / contact / avatar) so the drawer and the
  * onboarding decision work while the engine is stopped.
+ *
+ * 用浏览器登录 ([signInWithBrowser], #49): providers that refuse embedded WebViews (Google's
+ * `disallowed_useragent`) get the whole flow in a real browser instead ([browserRequests],
+ * opened by MainActivity as a Custom Tab). The engine side is the same: Platform redirects that
+ * browser to the loopback callback, and the completion page's `dsh-android://account` link
+ * returns to MainActivity ([onSignInReturned]).
  */
 @Singleton
 class AccountRepository @Inject constructor(
@@ -69,6 +78,16 @@ class AccountRepository @Inject constructor(
     private val _page = MutableStateFlow<PlatformPage?>(null)
     /** The Platform page MainActivity shows full-screen in its WebView (sign-in, 充值, 用量), or null. */
     val page: StateFlow<PlatformPage?> = _page.asStateFlow()
+
+    private val _browser = Channel<String>(Channel.CONFLATED)
+    /**
+     * Authorization pages to open in the browser (用浏览器登录); MainActivity collects them while
+     * started. Buffered (latest only), so a request made in the background is opened on return.
+     */
+    val browserRequests: Flow<String> = _browser.receiveAsFlow()
+    /** The user chose 用浏览器登录: this process's attempts open in the browser, not the in-app screen. */
+    @Volatile var useBrowser: Boolean = false
+        internal set
 
     private val _avatar = MutableStateFlow(loadAvatar())
     val avatar: StateFlow<Bitmap?> = _avatar.asStateFlow()
@@ -122,7 +141,36 @@ class AccountRepository @Inject constructor(
     fun openSignInPage() {
         val a = _state.value.attempt ?: return
         val url = a.authorizeUrl ?: return
-        if (a.phase == SignInPhase.WaitingBrowser) _page.value = PlatformPage(themed(url), signIn = true)
+        if (a.phase == SignInPhase.WaitingBrowser) show(url)
+    }
+
+    /**
+     * 用浏览器登录: run the whole sign-in in the browser. An attempt already shown in the in-app
+     * screen is cancelled and a fresh one started (its authorization page may be bound to the
+     * WebView's cookies); later attempts in this process go to the browser directly.
+     */
+    fun signInWithBrowser() {
+        useBrowser = true
+        val a = _state.value.attempt
+        if (_page.value?.signIn == true) _page.value = null
+        _state.update { it.copy(loginVisible = true, loginFailed = false) }
+        if (a == null || !a.phase.active) { startSignIn(); return }
+        if (a.id == PENDING || a.phase != SignInPhase.WaitingBrowser) return
+        scope.launch {
+            cancel()
+            if (!_state.value.active) startSignIn()
+        }
+    }
+
+    /** No browser could take the authorization page: back to the in-app screen. */
+    fun onBrowserUnavailable(url: String) {
+        useBrowser = false
+        if (_state.value.attempt?.phase == SignInPhase.WaitingBrowser) _page.value = PlatformPage(url, signIn = true)
+    }
+
+    private fun show(authorizeUrl: String) {
+        val url = themed(authorizeUrl)
+        if (useBrowser) _browser.trySend(url) else _page.value = PlatformPage(url, signIn = true)
     }
 
     /** Show a plain Platform page (充值 / 用量 / account) in the in-app screen. */
@@ -262,7 +310,7 @@ class AccountRepository @Inject constructor(
         val url = a.authorizeUrl ?: return
         if (a.phase != SignInPhase.WaitingBrowser || openedFor == a.id) return
         openedFor = a.id
-        _page.value = PlatformPage(themed(url), signIn = true)
+        show(url)
     }
 
     /** dsh closes its authorization tab when the attempt settles; the sign-in page is closed in [apply]. */

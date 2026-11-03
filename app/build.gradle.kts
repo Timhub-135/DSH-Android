@@ -106,6 +106,8 @@ room { schemaDirectory("$projectDir/schemas") }
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
+    // 用浏览器登录 (#49): the sign-in flow in a Custom Tab when Google refuses the in-app WebView.
+    implementation(libs.androidx.browser)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

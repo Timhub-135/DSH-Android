@@ -14,14 +14,17 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -59,7 +63,7 @@ import io.github.jackwener.dsh.core.designsystem.Dsh
 import io.github.jackwener.dsh.core.designsystem.DshType
 import io.github.jackwener.dsh.core.designsystem.HDivider
 import io.github.jackwener.dsh.core.designsystem.IconBtn
-import io.github.jackwener.dsh.core.platform.Browser
+import io.github.jackwener.dsh.core.designsystem.Radius
 
 /**
  * DeepSeek Platform inside the app: the sign-in authorization page and plain Platform pages
@@ -74,21 +78,33 @@ import io.github.jackwener.dsh.core.platform.Browser
  * That navigation is intercepted here and closes the screen; the attempt settling closes it too
  * (AccountRepository.apply). Back walks the page history, then pops the screen; closing cancels the attempt.
  *
- * Links that leave Platform on the sign-in page (privacy policy, terms, …), every new window,
- * and non-web schemes go to the system browser / the app that handles them.
+ * Every http(s) navigation, popups included (a child WebView over the page, so `window.opener`
+ * works), stays in this WebView session: the OAuth steps (Platform → Google / WeChat → loopback)
+ * are bound to its cookies (SignInRouting, #13 / #49). Non-web schemes go to the app that handles them.
+ *
+ * Providers that refuse embedded browsers (Google's `disallowed_useragent` / "This browser or app
+ * may not be secure") are detected from the URL or page text, and the screen offers 用浏览器登录:
+ * the whole flow again in a Custom Tab (AccountRepository.signInWithBrowser). The link below the
+ * page offers the same at any time.
  */
 @Composable
 fun PlatformWebScreen(page: PlatformPage, account: AccountRepository) {
     val c = Dsh.colors
     var web by remember { mutableStateOf<WebView?>(null) }
+    var popup by remember { mutableStateOf<WebView?>(null) }
     var progress by remember { mutableIntStateOf(0) }
     var pageTitle by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
-    val close = { account.closePage() }
-    // This screen is a destination (PlatformWebRoute): Back walks the page history here, and with
-    // none left the NavHost pops the destination (MainActivity then closes the page).
+    var blocked by remember { mutableStateOf(false) }
+    val close: () -> Unit = { if (popup != null) popup = null else account.closePage() }
+    // This screen is a destination (PlatformWebRoute): Back walks the popup's and then the page's
+    // history here, and with none left the NavHost pops the destination (MainActivity then closes the page).
     var canGoBack by remember { mutableStateOf(false) }
-    BackHandler(canGoBack && web != null) { web?.goBack() }
+    BackHandler(popup != null) {
+        val p = popup
+        if (p != null && p.canGoBack()) p.goBack() else popup = null
+    }
+    BackHandler(popup == null && canGoBack && web != null) { web?.goBack() }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, web) {
@@ -116,22 +132,46 @@ fun PlatformWebScreen(page: PlatformPage, account: AccountRepository) {
                     factory = { ctx ->
                         platformWebView(ctx, page, c.bgBase.toArgb(), account,
                             onProgress = { progress = it }, onTitle = { pageTitle = it }, onFailed = { failed = it }, onHistory = { canGoBack = it },
-                            onGone = { web = null; close() },
+                            onGone = { web = null; popup = null; close() }, onPopup = { popup = it }, onBlocked = { if (page.signIn) blocked = true },
                         ).also { web = it; it.loadUrl(page.url) }
                     },
                     modifier = Modifier.fillMaxSize(),
                     onRelease = { w ->
                         if (web === w) web = null
+                        popup = null
                         w.stopLoading()
                         CookieManager.getInstance().flush()
                         w.destroy()
                     },
                 )
             }
+            popup?.let { p ->
+                key(p) {
+                    AndroidView(factory = { p }, modifier = Modifier.fillMaxSize(), onRelease = { w -> w.stopLoading(); w.destroy() })
+                }
+            }
             if (failed) Column(Modifier.fillMaxSize().background(c.bgBase).padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.web_load_failed), style = DshType.s14, color = c.labelSecondary, textAlign = TextAlign.Center)
-                DButton(stringResource(R.string.retry), { failed = false; web?.reload() }, variant = BtnVariant.Outline)
+                DButton(stringResource(R.string.retry), { failed = false; (popup ?: web)?.reload() }, variant = BtnVariant.Outline)
+            }
+            if (blocked) Column(Modifier.fillMaxSize().background(c.bgBase).padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.web_blocked_title), style = DshType.base16m, color = c.labelPrimary, textAlign = TextAlign.Center)
+                Text(stringResource(R.string.web_blocked_desc), style = DshType.s14, color = c.labelSecondary, textAlign = TextAlign.Center)
+                DButton(stringResource(R.string.web_use_browser), { blocked = false; account.signInWithBrowser() })
+                DButton(stringResource(R.string.back), {
+                    blocked = false
+                    when { popup != null -> popup = null; web?.canGoBack() == true -> web?.goBack() }
+                }, variant = BtnVariant.Outline)
+            }
+        }
+        if (page.signIn) {
+            HDivider()
+            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.web_use_browser_hint), style = DshType.xs13, color = c.labelTertiary)
+                Text(stringResource(R.string.web_use_browser), Modifier.clip(Radius.sm).clickable { account.signInWithBrowser() }.padding(horizontal = 4.dp, vertical = 2.dp),
+                    style = DshType.xs13, color = c.link)
             }
         }
     }
@@ -150,51 +190,90 @@ private fun platformWebView(
     onFailed: (Boolean) -> Unit,
     onHistory: (canGoBack: Boolean) -> Unit,
     onGone: () -> Unit,
+    onPopup: (WebView?) -> Unit,
+    onBlocked: () -> Unit,
 ): WebView = WebView(context).apply {
+    setUp(this, page, background, account, onProgress, onTitle, onFailed, onHistory, onGone, onPopup, onBlocked, main = true)
+}
+
+/** Settings and clients of the page's WebView and of its popups (the same session and routing). */
+@SuppressLint("SetJavaScriptEnabled")
+private fun setUp(
+    web: WebView,
+    page: PlatformPage,
+    background: Int,
+    account: AccountRepository,
+    onProgress: (Int) -> Unit,
+    onTitle: (String?) -> Unit,
+    onFailed: (Boolean) -> Unit,
+    onHistory: (canGoBack: Boolean) -> Unit,
+    onGone: () -> Unit,
+    onPopup: (WebView?) -> Unit,
+    onBlocked: () -> Unit,
+    main: Boolean,
+): Unit = with(web) {
+    val context = web.context
     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     setBackgroundColor(background)
     with(settings) {
+        // What a sign-in provider's pages need in a WebView: JavaScript, DOM storage, popups
+        // (multiple windows; scripted window.open on the sign-in page, where providers open their
+        // popup after an async step), and cookies incl. third-party ones (below).
         javaScriptEnabled = true
         domStorageEnabled = true
         allowFileAccess = false
         allowContentAccess = false
         @Suppress("DEPRECATION") run { allowFileAccessFromFileURLs = false; allowUniversalAccessFromFileURLs = false }
         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        javaScriptCanOpenWindowsAutomatically = false
+        javaScriptCanOpenWindowsAutomatically = page.signIn
         setSupportMultipleWindows(true)
         setSupportZoom(false)
         // The mobile Chrome UA minus the WebView markers ("; wv", "Version/4.0"): Platform's login
         // (and the AWS WAF challenge in front of it) is meant for a regular mobile browser.
         userAgentString = userAgentString.replace("; wv", "").replace(Regex(" Version/[\\d.]+"), "")
     }
-    CookieManager.getInstance().let { it.setAcceptCookie(true); it.setAcceptThirdPartyCookies(this, true) }
+    CookieManager.getInstance().let { it.setAcceptCookie(true); it.setAcceptThirdPartyCookies(web, true) }
 
     /** true = handled here (the WebView must not load it). */
-    fun route(uri: Uri, redirect: Boolean, gesture: Boolean): Boolean {
-        val scheme = uri.scheme?.lowercase()
-        return when (scheme) {
-            // http(s) always stays in this WebView. During sign-in the whole OAuth flow
-            // (DeepSeek platform -> Google / AWS WAF) is bound to this WebView's cookies and to
-            // server-side session ids (Google's signin/oauth/v3/consent?as=...&xsrf=...), so handing
-            // a tapped link to another browser breaks the flow: Google answers 400 malformed.
-            "http", "https" -> false
-            APP_SCHEME -> { if (uri.host == "account") account.onSignInReturned(); true }
-            "intent" -> { openIntentUrl(context, uri.toString(), account); true }
-            "about", "data", "blob", "javascript" -> false
-            else -> { openOutside(context, Intent(Intent.ACTION_VIEW, uri)); true }
+    fun route(view: WebView, uri: Uri): Boolean {
+        if (page.signIn && SignInRouting.embeddedBlocked(uri.toString())) onBlocked()
+        return when (SignInRouting.route(uri)) {
+            WebNav.Load -> false
+            WebNav.Returned -> { account.onSignInReturned(); true }
+            WebNav.IntentUrl -> { openIntentUrl(view, uri.toString()); true }
+            WebNav.Outside -> { openOutside(context, Intent(Intent.ACTION_VIEW, uri)); true }
+            WebNav.Drop -> true
         }
     }
 
     webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-            request.isForMainFrame && route(request.url, request.isRedirect, request.hasGesture())
+            request.isForMainFrame && route(view, request.url)
 
-        override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) { onFailed(false) }
+        override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+            onFailed(false)
+            if (page.signIn && SignInRouting.embeddedBlocked(url)) onBlocked()
+        }
 
-        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) { onHistory(view.canGoBack()) }
+        override fun onPageFinished(view: WebView, url: String?) {
+            // Google's refusal page does not always say so in its URL: read the page text.
+            if (!page.signIn || !SignInRouting.isGoogleAccounts(url?.let(Uri::parse)?.host)) return
+            view.evaluateJavascript(BODY_TEXT) { text -> if (SignInRouting.blockedPageText(text)) onBlocked() }
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) { if (main) onHistory(view.canGoBack()) }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (request.isForMainFrame) { Log.i(TAG, "load failed: ${error.errorCode} ${error.description}"); onFailed(true) }
+        }
+
+        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+            // An error page from Google Accounts itself (400 malformed, 403 disallowed_useragent):
+            // the browser is the way out.
+            if (page.signIn && request.isForMainFrame && response.statusCode >= 400 && SignInRouting.isGoogleAccounts(request.url.host)) {
+                Log.i(TAG, "Google answered ${response.statusCode} on ${request.url.path}")
+                onBlocked()
+            }
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -205,49 +284,40 @@ private fun platformWebView(
     }
     webChromeClient = object : WebChromeClient() {
         override fun onProgressChanged(view: WebView, newProgress: Int) = onProgress(newProgress)
-        override fun onReceivedTitle(view: WebView, title: String?) = onTitle(title)
+        override fun onReceivedTitle(view: WebView, title: String?) { if (main) onTitle(title) }
 
-        /** target=_blank / window.open: catch the popup's first navigation and send it outside. */
+        /**
+         * target=_blank / window.open: a child WebView over the page, in the same session and with
+         * the same routing (a sign-in provider's popup reports back to its opener).
+         */
         override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
-            if (!isUserGesture) return false
-            val popup = WebView(view.context)
-            popup.settings.javaScriptEnabled = false
-            popup.webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
-                    val u = r.url
-                    when (u.scheme?.lowercase()) {
-                        // A sign-in popup (target=_blank) belongs to the same browser session: load it in
-                        // the main WebView instead of another app, whose cookies it does not have.
-                        "http", "https" -> view.post { runCatching { view.loadUrl(u.toString()) } }
-                        "intent" -> openIntentUrl(context, u.toString(), account)
-                        APP_SCHEME -> if (u.host == "account") account.onSignInReturned()
-                        else -> openOutside(context, Intent(Intent.ACTION_VIEW, u))
-                    }
-                    v.post { v.destroy() }
-                    return true
-                }
-            }
-            (resultMsg.obj as WebView.WebViewTransport).webView = popup
+            if (!isUserGesture && !page.signIn) return false
+            val child = WebView(view.context)
+            setUp(child, page, background, account, onProgress, onTitle, onFailed, onHistory, onGone, onPopup, onBlocked, main = false)
+            (resultMsg.obj as WebView.WebViewTransport).webView = child
             resultMsg.sendToTarget()
+            onPopup(child)
             return true
         }
+
+        override fun onCloseWindow(window: WebView) { if (!main) onPopup(null) }
     }
 }
 
-private const val APP_SCHEME = "dsh-android"
-
-private fun isLoopback(host: String?) = host == "127.0.0.1" || host == "localhost"
+private const val BODY_TEXT = "(function(){return document.body?document.body.innerText.slice(0,4000):''})()"
 
 /**
- * `intent:` URLs: the engine's completion page uses one for the app link; anything else is
- * started as a browsable intent with no explicit component, or its `S.browser_fallback_url`.
+ * `intent:` URLs for other apps (the completion page's app link is [WebNav.Returned]): started as a
+ * browsable intent with no explicit component; with no app for it, its `S.browser_fallback_url`
+ * loads here, in the same session.
  */
-private fun openIntentUrl(context: Context, url: String, account: AccountRepository) {
+private fun openIntentUrl(view: WebView, url: String) {
     val intent = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull() ?: return
-    if (intent.data?.scheme == APP_SCHEME || intent.scheme == APP_SCHEME) { account.onSignInReturned(); return }
     intent.component = null
     intent.selector = null
-    if (!openOutside(context, intent)) intent.getStringExtra("browser_fallback_url")?.let { Browser.openExternal(context, it) }
+    if (!openOutside(view.context, intent)) intent.getStringExtra("browser_fallback_url")
+        ?.takeIf { SignInRouting.route(Uri.parse(it)) == WebNav.Load && it.startsWith("http", ignoreCase = true) }
+        ?.let { view.post { runCatching { view.loadUrl(it) } } }
 }
 
 private fun openOutside(context: Context, intent: Intent): Boolean = try {

@@ -671,6 +671,11 @@
     <string name="web_sign_in_title">Вход в DeepSeek</string>
     <string name="web_platform_title">Открытая платформа DeepSeek</string>
     <string name="web_load_failed">Не удалось загрузить страницу. Проверь сеть и повтори.</string>
+    <string name="web_use_browser">Войти через браузер</string>
+    <string name="web_use_browser_hint">Не получается войти?</string>
+    <string name="web_blocked_title">Google не разрешает вход внутри приложения</string>
+    <string name="web_blocked_desc">Google не разрешает входить со страницы внутри приложения. Войди через браузер — после входа DSH откроется снова.</string>
+    <string name="web_no_browser">Нет доступного браузера. Вход продолжится внутри приложения.</string>
     <string name="prov_group">Сторонние провайдеры</string>
     <string name="prov_group_desc">Интерфейс, совместимый с OpenAI. API Key хранится на устройстве в зашифрованном виде и передаётся движку только при вызове модели.</string>
     <string name="prov_add">Добавить провайдера</string>

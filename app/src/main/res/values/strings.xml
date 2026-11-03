@@ -674,6 +674,11 @@
     <string name="web_sign_in_title">登录 DeepSeek</string>
     <string name="web_platform_title">DeepSeek 开放平台</string>
     <string name="web_load_failed">页面加载失败，请检查网络后重试。</string>
+    <string name="web_use_browser">用浏览器登录</string>
+    <string name="web_use_browser_hint">登录遇到问题？</string>
+    <string name="web_blocked_title">无法在应用内用 Google 登录</string>
+    <string name="web_blocked_desc">Google 不允许在应用内的网页中登录。改用浏览器登录，完成后会自动回到 DSH。</string>
+    <string name="web_no_browser">没有可用的浏览器，已改回在应用内登录。</string>
     <string name="prov_group">第三方服务商</string>
     <string name="prov_group_desc">OpenAI 兼容接口。API Key 加密保存在本机，只在调用模型时交给引擎。</string>
     <string name="prov_add">添加服务商</string>

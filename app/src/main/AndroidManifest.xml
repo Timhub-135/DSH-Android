@@ -42,6 +42,8 @@
 
     <queries>
         <intent><action android:name="android.intent.action.MAIN" /></intent>
+        <!-- Custom Tabs provider for 用浏览器登录 (Browser.signInIntent). -->
+        <intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>
         <!-- Shizuku manager (shell access) and Play Store (to install it). -->
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.android.vending" />
@@ -105,8 +107,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Account sign-in completion page (engine loopback) opened in another browser, from the
-                 copied sign-in link, returns here; the in-app sign-in screen intercepts it itself. -->
+            <!-- Account sign-in completion page (engine loopback) opened in a browser (用浏览器登录's
+                 Custom Tab, or the copied sign-in link) returns here; singleTask clears a Custom Tab on
+                 top of this task. The in-app sign-in screen intercepts the link itself. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
