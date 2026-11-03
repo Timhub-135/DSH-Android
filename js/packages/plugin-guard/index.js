@@ -21,6 +21,8 @@
 //     goes on by itself) continues with a nudge, capped; every turn end records its reason.
 //  7. Model reasoning levels for the app's composer (`android/models/reasoning`, #46): what dsh's
 //     llm runtime resolves for each third-party model, so the app offers only levels the route accepts.
+//  8. Per-conversation model (`android/session/model`, #53; session-model.js): each conversation's
+//     model route and reasoning level, installed on its root Agent (dsh's Agent-scoped selection).
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix } from 'node:path'
@@ -28,6 +30,7 @@ import { format } from 'node:util'
 import { checkCommand, isReadOnlyCommand, refusalText } from './hardline.js'
 import { setupExperience } from './experience.js'
 import { setupContinuation } from './continuation.js'
+import { setupSessionModel } from './session-model.js'
 
 export { checkCommand, isReadOnlyCommand, refusalText } from './hardline.js'
 
@@ -375,6 +378,8 @@ export function apply(ctx, config = {}) {
     ['android/models/reasoning', params => reasoningLevels(ctx.get('llm'), params?.models)],
   ])
   ctx.on('sdk-extensions/resolve', method => methods.get(method))
+  // ── 8. per-conversation model (#53) ─────────────────────────────────────────
+  setupSessionModel(ctx)
 
   // ── 1. Hardline floor ──────────────────────────────────────────────────────
   const hardlineVerdict = exec => {

@@ -71,9 +71,14 @@ phone) and fully regenerates it; it holds no secret. Values are JSON (valid YAML
   config: {"modelPolicies":[{"provider":"<route id>","model":"kimi-k3","headroomTokens":16384}]}
 - id: tool-web                  # only when web search is unavailable (below)
   config: {"search":false,"fetch":true,"searchTimeoutMs":60000}
+- id: agent-default-model       # dsh-base's default model: the 默认模型 route (#53), for plugins' own sessions
+  config: {"provider":"deepseek-account","model":"deepseek-flash","reasoningEffort":"low"}
 ```
 
-or just `[]` when no provider is enabled and web search is available. Only enabled providers with ≥ 1 model are
+`agent-default-model` is the default model's route, the same as `initialize`'s (below; the level only when the stored
+catalog lists it). Plugins that create sessions themselves (heartbeat, chat bots) read it through dsh's
+`agentDefaultModel` service, so they run on the default, never on a model the user picked for one conversation.
+(Without any row the file is just `[]`, when no provider is enabled and web search is available.) Only enabled providers with ≥ 1 model are
 written; `apiKeyEnv` only when a key is stored (an open endpoint gets no credential). Each model gets its effective
 `contextWindow` and output cap `maxTokens` (also `defaults.maxTokens`, sent as `max_tokens`; some vendors default to
 1–4K and truncate tool calls): per-model override › provider-level override (设置 → 模型服务 「上下文窗口」「最大输出」) ›
@@ -138,6 +143,8 @@ an offset past its log (`LogSeqs`), never treating a seq as a cross-generation i
   works) and prompts fail with the route's error until the configuration changes. The app reads
   `account/state`, then `android/models/reasoning` (below), before `initialize`. A route change (provider, model or effort) re-sends `initialize` while no SDK
   session is open in the process (patch-free: the server just replaces its route), otherwise restarts the idle engine.
+  This route is the **default** (设置 → 模型服务 → 新会话的默认模型): each conversation then runs on its own model,
+  sent with `android/session/model` (below).
 - `android/models/reasoning { models: [{ provider, model }] }` → `{ models: [{ provider, model, efforts: [{ id, name }],
   defaultEffort? } | { provider, model, error }] }` (plugin-guard, through patch 10; #46): each third-party model's
   reasoning selector as dsh's llm runtime resolves it (`resolveModelInfo` → the adapter's family table or the profile's
@@ -165,6 +172,23 @@ an offset past its log (`LogSeqs`), never treating a seq as a cross-generation i
   need approval up front in 仅可查看 and tells the model the mode is why (instead of "the user rejected tool …"), and
   auto-allows `write`/`edit` inside `HOME`/`TMPDIR` in the other modes. Until the app sends it the engine treats the
   mode as unknown: those writes still ask, and a refusal says "declined, or the mode is 仅可查看".
+- `android/session/model { sessionId, provider, model, reasoningEffort? } | { sessionId, model: null }` →
+  `{ selected: { provider, model, reasoningEffort? } }` (plugin-guard `session-model.js`, through patch 10; #53). Each
+  conversation's own model (the app's `sessions.modelProvider/modelId/modelEffort`: a copy of the default taken at its
+  first message, changed by the composer's model chip; rows without one follow the default). **The app sends it before
+  each `session/prompt`, after `android/session/mode`, and right away when the user switches the model of a running
+  conversation.** `provider` / `model` / `reasoningEffort` follow `initialize`'s rules (DeepSeek: the key or account
+  route and its Effort id; third-party: the level only while `android/models/reasoning` lists it). The engine validates
+  it like `initialize` (dsh `llm.resolveCallConfig`: a registered route, an accepted level; else a JSON-RPC error, which
+  fails the prompt) and installs it on the conversation's root Agent with dsh's Agent-scoped selection
+  (`installModelSelection` from `@deepseek-ai/dsh-agent`, the mechanism behind the Web host's `session/selectModel`):
+  it routes the Agent's next model request (between steps, also inside a running turn), names the model in the system
+  prompt, and adds dsh's switch notice (`user/message` `source { kind: 'model-selection', form: 'notice', summary:
+  'from → to' }`, the app shows a quiet line) to the first request after a provider/model change. Subagents take the
+  route of their parent's latest request (dsh-subagent). Sent before the Agent exists, it is installed at
+  `agent/created` (new or resumed). `model: null` forgets it. Not persisted in the engine: the app re-sends it.
+  A conversation whose own model is no longer available (provider removed or disabled, model dropped) runs on the
+  default, which then becomes its own; the composer says so before the next message.
 - `android/session/mode { sessionId, mode: null | SessionMode }` → `{}` (plugin-mode, through patch 10; §2.5). **The app
   sends it right after `android/session/permission`, before each `session/prompt`** (also after a resume).
 - handles server requests `approval/request` (answer `allowed-once | rejected | cancelled`; requests from subagents carry `rootSessionId`, which owns the approval) and `user-question/ask` (`ask_user_question` tool, plan mode); consumes `session.event` / `session.status` notifications.

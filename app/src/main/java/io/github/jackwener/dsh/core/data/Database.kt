@@ -43,6 +43,14 @@ data class SessionEntity(
     val modeId: String? = null,
     /** 免打扰 (#43): finished turns post no notification; a run blocked on the user still does. */
     @ColumnInfo(defaultValue = "0") val muted: Boolean = false,
+    /**
+     * The conversation's own model (#53, core/session/SessionModel.kt): route ("" = DeepSeek, else a
+     * provider's route id), model id, effort (DeepSeek Effort id / third-party level, null = the model's
+     * default). [modelProvider] null = follows the settings default (rows from before #53, automations).
+     */
+    val modelProvider: String? = null,
+    val modelId: String? = null,
+    val modelEffort: String? = null,
 )
 
 /**
@@ -94,6 +102,8 @@ interface SessionDao {
     suspend fun setPreset(id: String, preset: String?)
     @Query("UPDATE sessions SET modeId = :modeId WHERE id = :id")
     suspend fun setMode(id: String, modeId: String?)
+    @Query("UPDATE sessions SET modelProvider = :provider, modelId = :model, modelEffort = :effort WHERE id = :id")
+    suspend fun setModel(id: String, provider: String?, model: String?, effort: String?)
     @Query("SELECT * FROM sessions WHERE id = :id")
     suspend fun get(id: String): SessionEntity?
     @Query("SELECT * FROM sessions WHERE running = 1")
@@ -153,7 +163,7 @@ abstract class DshDatabase : RoomDatabase() {
     abstract fun usage(): UsageDao
 }
 
-const val DB_VERSION = 4
+const val DB_VERSION = 5
 
 /**
  * Schema migrations. Every released version from 2 on is migrated in place (conversations are user
@@ -175,7 +185,18 @@ object Migrations {
         override fun migrate(db: SupportSQLiteDatabase) { SQL_3_4.forEach(db::execSQL) }
     }
 
-    val ALL: Array<Migration> = arrayOf(M_2_3, M_3_4)
+    /** v5: the conversation's own model (#53). Existing rows read null = the settings default, as before. */
+    val SQL_4_5 = listOf(
+        "ALTER TABLE `sessions` ADD COLUMN `modelProvider` TEXT",
+        "ALTER TABLE `sessions` ADD COLUMN `modelId` TEXT",
+        "ALTER TABLE `sessions` ADD COLUMN `modelEffort` TEXT",
+    )
+
+    val M_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) { SQL_4_5.forEach(db::execSQL) }
+    }
+
+    val ALL: Array<Migration> = arrayOf(M_2_3, M_3_4, M_4_5)
     /** Versions that are still recreated instead of migrated. */
     val DESTRUCTIVE_FROM = intArrayOf(1)
 }

@@ -89,7 +89,11 @@
     <string name="effort_default">默认</string>
     <string name="effort_default_desc">不指定档位，按模型自己的默认设置</string>
     <string name="effort_is_default">模型的默认档位</string>
-    <string name="model_applies_next">当前任务结束后生效</string>
+    <string name="model_applies_next">将从当前任务的下一步开始使用</string>
+    <string name="model_this_session">只改当前会话；新会话的默认值在 设置 → 模型服务</string>
+    <string name="session_model_gone">此会话原用的模型 %1$s 已不可用，下一条消息将改用默认模型 %2$s</string>
+    <string name="err_session_model">此会话的模型 %1$s 不可用：%2$s</string>
+    <string name="model_switched_notice">已切换模型：%1$s</string>
     <string name="preset_read_only">仅可查看</string>
     <string name="preset_ask">操作需确认</string>
     <string name="preset_full">完全权限</string>
@@ -460,10 +464,10 @@
     <string name="key_invalid">API Key 不可用：%1$s</string>
     <string name="key_get">在 platform.deepseek.com 获取 API Key</string>
     <string name="key_clear">移除</string>
-    <string name="set_default_model">默认模型</string>
+    <string name="set_default_model">新会话的默认模型</string>
     <string name="model_flash_desc">1M 上下文，支持图片，速度快</string>
     <string name="model_pro_desc">更强的推理与规划</string>
-    <string name="effort_desc">切换后在下一次运行时生效</string>
+    <string name="effort_desc">新会话的默认值；每个会话可在输入框的模型菜单里单独切换</string>
     <string name="set_capabilities">手机能力</string>
     <string name="set_capabilities_desc">关闭的能力不会提供给智能体。需要系统权限的能力会在首次使用时请你授权。</string>
     <string name="grp_files">文件</string>
@@ -710,7 +714,7 @@
     <string name="prov_err_url">请填写 https:// 或 http:// 开头的接口地址</string>
     <string name="prov_err_key">请填写 API Key</string>
     <string name="prov_err_models">至少勾选一个模型</string>
-    <string name="prov_model_desc">第三方模型的推理强度在输入框的模型菜单里按模型选择</string>
+    <string name="prov_model_desc">此模型没有可选的推理档位（或尚未获知，引擎下次启动后显示）</string>
     <string name="prov_context_window">上下文窗口</string>
     <string name="prov_max_output">最大输出</string>
     <string name="prov_limit_auto">自动</string>

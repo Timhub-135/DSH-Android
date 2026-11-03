@@ -205,7 +205,7 @@ fun Composer(
     showChips: Boolean = true,
     /** Send is allowed with an empty draft (e.g. the quick panel carries shared content). */
     canSendEmpty: Boolean = false,
-    /** A model/effort change waits for a running task (fix-session's ConversationController.modelChangePending); defaults to this session running. */
+    /** The conversation runs: a model/effort change applies from its next step (ConversationController.modelChangePending). */
     modelChangePending: Boolean = running,
     /** The conversation's session mode (null hides the mode chip) and the modes it can switch to. */
     mode: SessionMode? = null,
@@ -221,6 +221,8 @@ fun Composer(
     /** Its saved level (null = the model's default); a level it no longer offers shows as 默认. */
     reasoningChoice: String? = null,
     onReasoning: (String?) -> Unit = {},
+    /** A line about the conversation's model shown above the editor (its own model is gone, #53); null = none. */
+    modelNotice: String? = null,
 ) {
     val c = Dsh.colors
     val context = LocalContext.current
@@ -280,6 +282,7 @@ fun Composer(
                 }
             }
         }
+        if (modelNotice != null) Text(modelNotice, Modifier.padding(horizontal = 14.dp, vertical = 4.dp), style = DshType.xxs12, color = c.amber)
         // #39: a text-only model gets "[image omitted …]" instead of the picture; say so before it is sent.
         if ((state.images.isNotEmpty() || state.pending > 0) && !model.acceptsImages) Text(
             stringResource(if (model.isDeepSeek) R.string.images_text_only_deepseek else R.string.images_text_only, modelLabel(model.model)),
@@ -391,7 +394,9 @@ fun Composer(
                             MenuItem(e.name, { modelOpen = false; onReasoning(e.id) }, null, desc, selected = e.selected)
                         }
                     }
-                    if (modelChangePending) Text(stringResource(R.string.model_applies_next), Modifier.padding(8.dp), style = DshType.xxs12, color = c.labelCaption)
+                    // #53: the chip is this conversation's; the default lives in 设置 → 模型服务.
+                    Text(stringResource(if (modelChangePending) R.string.model_applies_next else R.string.model_this_session), Modifier.padding(8.dp).widthIn(max = 240.dp),
+                        style = DshType.xxs12, color = c.labelCaption)
                 }
             }
             }

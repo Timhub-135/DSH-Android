@@ -107,6 +107,8 @@ data class SessionLive(
     val preset: PermissionPreset = PermissionPreset.Full,
     /** SessionMode id from the session row (or picked for a new conversation); null = 默认. */
     val modeId: String? = null,
+    /** The conversation's own model (#53) from the row (or picked for a new conversation); null = the settings default. */
+    val model: SessionModel? = null,
     val exists: Boolean = false,
 ) {
     /** The mode can be picked only before the conversation's first message (see [modeChangeable]). */

@@ -192,6 +192,7 @@ fun ComposerSlot(vm: ConversationController, composer: ComposerState, settings: 
                  listenRequest: Int = 0) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val modelChangePending by vm.modelChangePending.collectAsStateWithLifecycle()
+    val model by vm.model.collectAsStateWithLifecycle()
     val send = {
         val text = prepare(composer.outgoingText(context))
         val images = composer.images.map { it.mime to it.base64 }
@@ -224,10 +225,12 @@ fun ComposerSlot(vm: ConversationController, composer: ComposerState, settings: 
         live.approval != null -> ApprovalCard(live.approval) { vm.approve(live.approval, it) }
         live.question != null -> QuestionCard(live.question, onSubmit = { vm.answer(live.question, it) }, onSkip = { vm.skipQuestion(live.question) })
         else -> Composer(
-            composer, live.running, live.preset, vm::setPreset, settings.choice, settings.providers, settings.effort, vm::setModel, vm::setEffort, conv.contextTokens,
+            composer, live.running, live.preset, vm::setPreset, model.choice, settings.providers, model.effort, vm::setModel, vm::setEffort, conv.contextTokens,
             onSend = { voice.cancel(); send() },
             onStop = { vm.stop() },
-            reasoning = settings.reasoning, reasoningChoice = settings.reasoningChoice, onReasoning = vm::setReasoning,
+            reasoning = model.reasoning(settings.reasoningCatalog), reasoningChoice = model.reasoningChoice, onReasoning = vm::setReasoning,
+            // #53: this conversation's own model is gone; the next message runs on the default.
+            modelNotice = live.model?.takeIf { model.fellBack }?.let { stringResource(R.string.session_model_gone, modelLabel(it.model), modelLabel(model.choice.model)) },
             hero = hero,
             actions = ComposerActions(
                 onNewSession = if (conv.isEmpty) null else ({ vm.newSession() }),

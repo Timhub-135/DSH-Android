@@ -16,6 +16,8 @@ import io.github.jackwener.dsh.core.data.SecretStore
 import io.github.jackwener.dsh.core.data.SettingsRepository
 import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.provider.renderProfilePatch
+import io.github.jackwener.dsh.core.session.SessionModel
+import io.github.jackwener.dsh.core.session.SessionModels
 import io.github.jackwener.dsh.core.session.SessionStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -58,11 +60,13 @@ class EngineStartException(message: String, val log: String?, cause: Throwable) 
 class EngineBackgroundStartException(cause: Throwable) : Exception("foreground service start not allowed from the background", cause)
 
 /**
- * The process-wide SDK route (`initialize`): provider + model + effort ([effort] is the Effort id for
- * DeepSeek, a level the engine reported for a third-party model (#46), or "" to send none: the
- * model's own default).
+ * A model route: provider + model + effort ([effort] is the Effort id for DeepSeek, a level the engine
+ * reported for a third-party model (#46), or "" to send none: the model's own default). The process-wide
+ * one (`initialize`) is the default; each conversation sends its own (`android/session/model`, #53).
  */
-data class EngineRoute(val provider: String, val model: String, val effort: String)
+data class EngineRoute(val provider: String, val model: String, val effort: String) {
+    val isDeepSeek: Boolean get() = provider.startsWith("deepseek-")
+}
 
 /** The selected third-party route could not be initialized (engine fell back to DeepSeek). */
 class RouteUnavailableException(message: String) : Exception(message)
@@ -127,20 +131,26 @@ class EngineManager @Inject constructor(
     /** Backoff + circuit breaker for unexpected engine exits (see RestartPolicy). */
     val restarts = RestartPolicy()
 
-    private fun wantedRoute(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean): EngineRoute {
-        val choice = st.choice
-        choice.provider?.let { p ->
-            val reasoning = ReasoningLevels.of(p, choice.model, engineReasoning ?: st.reasoningCatalog)
-            return EngineRoute(p.id, choice.model, ReasoningLevels.effective(reasoning, st.reasoningChoice).orEmpty())
-        }
-        return EngineRoute(if (!hasKey && account.get().signedIn) "deepseek-account" else "deepseek-official", choice.model, st.effort.id)
+    /** The DeepSeek route: the account only without an API key (dsh's `initializeDefaultModel` precedence). */
+    private fun deepSeekRoute(hasKey: Boolean) = if (!hasKey && account.get().signedIn) "deepseek-account" else "deepseek-official"
+
+    /** The default model's route (`initialize`; conversations send their own, [sessionRoute]). */
+    private fun wantedRoute(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean): EngineRoute =
+        SessionModels.route(SessionModels.default(st), st, engineReasoning ?: st.reasoningCatalog, deepSeekRoute(hasKey))
+
+    /** The engine route of one conversation's model (#53; an available one, see SessionModels.resolve). */
+    suspend fun sessionRoute(m: SessionModel): EngineRoute {
+        val st = settings.current()
+        return SessionModels.route(m, st, engineReasoning ?: st.reasoningCatalog, deepSeekRoute(secrets.read() != null))
     }
 
     /** web_search needs a DeepSeek credential: the API key, or the account while on the account route. */
     private fun webSearch(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean) = hasKey || st.choice.isDeepSeek
 
     private fun profilePatch(st: io.github.jackwener.dsh.core.data.Settings, hasKey: Boolean) = io.github.jackwener.dsh.core.extensions.appendPatchRows(
-        renderProfilePatch(st.providers, webSearch(st, hasKey), io.github.jackwener.dsh.core.provider.appProductToken(io.github.jackwener.dsh.BuildConfig.VERSION_NAME)),
+        renderProfilePatch(st.providers, webSearch(st, hasKey), io.github.jackwener.dsh.core.provider.appProductToken(io.github.jackwener.dsh.BuildConfig.VERSION_NAME),
+            // Plugins' own sessions take the default (the stored levels: the patch must not depend on what this process reported).
+            defaultModel = SessionModels.route(SessionModels.default(st), st, st.reasoningCatalog, deepSeekRoute(hasKey))),
         io.github.jackwener.dsh.core.extensions.ExtensionsEngineInputs.patchRows(st.mcpServers, File(context.filesDir, "dsh-home").path))
 
     /** Provider keys and secret header values, plus the extensions' environment (plugin registries, MCP header secrets): env var name → value. */
@@ -176,7 +186,13 @@ class EngineManager @Inject constructor(
     /** The running engine's channel, without starting one (null while stopped or starting). */
     fun sdkIfReady(): JsonRpcPeer? = sdk?.takeIf { state.value == EngineState.Ready }
 
-    suspend fun sdk(): JsonRpcPeer = mutex.withLock {
+    suspend fun sdk(): JsonRpcPeer = sdk(null)
+
+    /**
+     * [sdk] for a prompt of a conversation running on [route] (its own model, #53; null = the default):
+     * the credential / failed-route checks apply to that route, not to the default.
+     */
+    suspend fun sdk(route: EngineRoute?): JsonRpcPeer = mutex.withLock {
         val st = settings.current()
         val hasKey = secrets.read() != null
         val peer = sdk?.takeIf { _state.value == EngineState.Ready }?.let { peer ->
@@ -199,9 +215,14 @@ class EngineManager @Inject constructor(
             }
         } ?: startLocked(st, hasKey)
         val want = wantedRoute(st, hasKey)
-        if (want != activeRoute && !st.choice.isDeepSeek && !sessions.get().hasEngineRuns())
-            throw RouteUnavailableException("${st.choice.provider?.name ?: want.provider} / ${want.model}: ${failedRoute?.second ?: "unavailable"}")
-        if (st.choice.isDeepSeek && !hasKey && !account.get().signedIn) throw NoCredentialsException()
+        val deepSeek = route?.isDeepSeek ?: st.choice.isDeepSeek
+        // The default route failed `initialize` (the engine runs on DeepSeek): prompts that need it say why.
+        val unavailable = if (route == null) want != activeRoute && !deepSeek else route == failedRoute?.first
+        if (unavailable && !sessions.get().hasEngineRuns()) {
+            val target = route ?: want
+            throw RouteUnavailableException("${st.providers.firstOrNull { it.id == target.provider }?.name ?: target.provider} / ${target.model}: ${failedRoute?.second ?: "unavailable"}")
+        }
+        if (deepSeek && !hasKey && !account.get().signedIn) throw NoCredentialsException()
         peer
     }
 
@@ -301,7 +322,7 @@ class EngineManager @Inject constructor(
                 // A broken third-party route must not take the engine (account login, DeepSeek) down.
                 Log.w(TAG, "third-party route ${want.provider}/${want.model} failed; falling back to DeepSeek", e)
                 failedRoute = want to (e.message ?: e.javaClass.simpleName)
-                initialize(peer, EngineRoute(if (!hasKey && account.get().signedIn) "deepseek-account" else "deepseek-official", io.github.jackwener.dsh.core.provider.DEFAULT_DEEPSEEK_MODEL, st.effort.id))
+                initialize(peer, EngineRoute(deepSeekRoute(hasKey), io.github.jackwener.dsh.core.provider.DEFAULT_DEEPSEEK_MODEL, st.effort.id))
             }
             activeFingerprint = fingerprint
             sdk = peer; bridge = bridgePeer

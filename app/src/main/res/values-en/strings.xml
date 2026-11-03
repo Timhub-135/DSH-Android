@@ -89,7 +89,11 @@
     <string name="effort_default">Default</string>
     <string name="effort_default_desc">No level set: the model\'s own default</string>
     <string name="effort_is_default">The model\'s default level</string>
-    <string name="model_applies_next">Applies after the current run</string>
+    <string name="model_applies_next">Applies from the current run\'s next step</string>
+    <string name="model_this_session">Changes this conversation only; the default for new ones is in Settings → Model services</string>
+    <string name="session_model_gone">This conversation\'s model %1$s is no longer available; the next message uses the default, %2$s</string>
+    <string name="err_session_model">This conversation\'s model %1$s is unavailable: %2$s</string>
+    <string name="model_switched_notice">Model switched: %1$s</string>
     <string name="preset_read_only">Read only</string>
     <string name="preset_ask">Ask to act</string>
     <string name="preset_full">Full access</string>
@@ -460,10 +464,10 @@
     <string name="key_invalid">That API Key did not work: %1$s</string>
     <string name="key_get">Get an API Key on platform.deepseek.com</string>
     <string name="key_clear">Remove</string>
-    <string name="set_default_model">Default model</string>
+    <string name="set_default_model">Default model for new conversations</string>
     <string name="model_flash_desc">1M context, images, fast</string>
     <string name="model_pro_desc">Stronger reasoning and planning</string>
-    <string name="effort_desc">Takes effect on the next run</string>
+    <string name="effort_desc">Default for new conversations; each conversation can switch in the composer\'s model menu</string>
     <string name="set_capabilities">Phone capabilities</string>
     <string name="set_capabilities_desc">Switched-off capabilities are not offered to the agent. Capabilities that need a system permission ask for it the first time they are used.</string>
     <string name="grp_files">Files</string>
@@ -710,7 +714,7 @@
     <string name="prov_err_url">Enter a base URL starting with https:// or http://</string>
     <string name="prov_err_key">Enter the API key</string>
     <string name="prov_err_models">Check at least one model</string>
-    <string name="prov_model_desc">Third-party models: pick the effort per model in the composer\'s model menu</string>
+    <string name="prov_model_desc">This model offers no reasoning levels (or they are not known yet: shown after the engine\'s next start)</string>
     <string name="prov_context_window">Context window</string>
     <string name="prov_max_output">Max output</string>
     <string name="prov_limit_auto">Auto</string>
