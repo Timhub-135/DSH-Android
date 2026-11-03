@@ -253,7 +253,7 @@ class EngineManager @Inject constructor(
         val t0 = System.currentTimeMillis()
         val gen = generation + 1
         try {
-            var service = bind(gen)
+            var service = bind(gen, st.engineKeepAlive)
             if (runCatching { service.isRunning() }.getOrDefault(false)) {
                 // A previous :main died while :engine survived; Node runs once per process, so replace it.
                 Log.w(TAG, "engine process already ran Node; replacing it")
@@ -262,7 +262,7 @@ class EngineManager @Inject constructor(
                 connection = null
                 killEngineProcess()
                 withTimeoutOrNull(5_000) { dying?.await() }
-                service = bind(gen)
+                service = bind(gen, st.engineKeepAlive)
             }
             val tBound = System.currentTimeMillis()
             val fingerprint = profileFingerprint(st, hasKey)
@@ -333,20 +333,46 @@ class EngineManager @Inject constructor(
         EngineDiagnostics.logTail(context, 600)
     }.getOrNull()
 
-    /** Called when there is no running work; stops the engine after [IDLE_MS]. */
+    /** Called when there is no running work; stops the engine after [IDLE_MS] (never with 引擎常驻). */
     fun scheduleIdleShutdown() {
         idleJob?.cancel()
         idleJob = scope.launch {
             delay(IDLE_MS)
-            if (sessions.get().hasRunning() || account.get().busy) return@launch
+            if (!EngineKeepAlive.mayStopWhenIdle(settings.current().engineKeepAlive, sessions.get().hasRunning(), account.get().busy)) return@launch
             stop()
         }
+    }
+
+    /**
+     * 引擎常驻 ([EngineKeepAlive]): starts the engine when the setting is on and it is not running
+     * (app start, boot, app update, the setting turned on, after a stop or an unexpected exit).
+     * Nothing while the crash-loop breaker is open; then (or with the setting off) a [restored]
+     * service, one Android re-created without an engine in it, is stopped instead.
+     */
+    fun keepAlive(restored: Boolean = false) {
+        scope.launch {
+            val s = _state.value
+            if (s != EngineState.Stopped && s !is EngineState.Failed) return@launch
+            if (!settings.current().engineKeepAlive || restarts.open) {
+                // Under the lock: a start in progress must not lose its service.
+                if (restored) mutex.withLock { if (_state.value == EngineState.Stopped && connection == null) context.stopService(Intent(context, EngineService::class.java)) }
+                return@launch
+            }
+            Log.i(TAG, "keep-alive: starting the engine")
+            runCatching { control() }.onFailure { Log.w(TAG, "keep-alive start failed", it) }
+        }
+    }
+
+    /** The 引擎常驻 switch: on starts the engine now; off lets it stop after the usual idle time. */
+    suspend fun setKeepAlive(on: Boolean) {
+        settings.setEngineKeepAlive(on)
+        if (on) { idleJob?.cancel(); keepAlive() } else if (_state.value == EngineState.Ready) scheduleIdleShutdown()
     }
 
     fun cancelIdleShutdown() { idleJob?.cancel() }
 
     /** Hard stop: the SDK has no cancel method, so stopping a turn means stopping the process. */
-    suspend fun stop() = mutex.withLock { shutdownLocked() }
+    suspend fun stop() { mutex.withLock { shutdownLocked() }; keepAlive() }
 
     /** Asks Node to exit and waits for the `:engine` process to die so the next start gets a fresh one. */
     private suspend fun shutdownLocked() {
@@ -390,6 +416,8 @@ class EngineManager @Inject constructor(
             // (events the process wrote before it died) reach SessionStore before the loss does.
             withTimeoutOrNull(2_000) { peer.closed.await() }
             sessions.get().onEngineLost(gen, retryInMs)
+            // 引擎常驻: come back after the same backoff even when no conversation was running.
+            if (retryInMs != null) scope.launch { delay(retryInMs); keepAlive() }
             delay(2_000) // let the system record the exit reason
             EngineDiagnostics.collectExitInfo(context)
         }
@@ -411,7 +439,7 @@ class EngineManager @Inject constructor(
         _state.value = EngineState.Stopped
     }
 
-    private suspend fun bind(gen: Int): IEngineService {
+    private suspend fun bind(gen: Int, keepAlive: Boolean): IEngineService {
         val deferred = CompletableDeferred<IEngineService>()
         val died = CompletableDeferred<Unit>().also { death = it }
         val conn = object : ServiceConnection {
@@ -423,7 +451,8 @@ class EngineManager @Inject constructor(
         }
         val intent = Intent(context, EngineService::class.java)
         try {
-            context.startForegroundService(intent)
+            // The extra picks the service's restart mode (EngineKeepAlive.startMode); bindService ignores it.
+            context.startForegroundService(Intent(intent).putExtra(EngineKeepAlive.EXTRA_KEEP_ALIVE, keepAlive))
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (API 31+) extends IllegalStateException; older
             // releases throw a plain IllegalStateException for background starts.
@@ -435,6 +464,8 @@ class EngineManager @Inject constructor(
         // (1 s, then ×4 per crash, ≥10 s apart); while that restart is pending every new
         // startForegroundService/bindService waits for it, which delayed AC8 recovery by 10–25 s.
         // Restarts are RestartPolicy's job, so a crash must leave nothing scheduled in the system.
+        // 引擎常驻 is the exception: there the service is START_STICKY, so Android re-creates it even
+        // when :main is gone too (EngineService then asks :main to start Node again).
         check(context.bindService(intent, conn, Context.BIND_IMPORTANT)) { "bind failed" }
         connection = conn
         return withTimeout(20_000) { deferred.await() }

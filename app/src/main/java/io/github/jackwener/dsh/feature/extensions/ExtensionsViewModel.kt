@@ -38,7 +38,7 @@ class ExtensionsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     val repo: ExtensionsRepository,
     private val settingsRepo: SettingsRepository,
-    engine: EngineManager,
+    private val engine: EngineManager,
 ) : ViewModel() {
     val store = repo.store
     private val client = repo.client
@@ -89,6 +89,7 @@ class ExtensionsViewModel @Inject constructor(
     fun remove(name: String) = act(name) { remove(name) }
     fun resume(name: String) = act(name) { resume(name) }
     fun restartNow() = store.restartNow()
+    fun enableEngineKeepAlive() = viewModelScope.launch { engine.setKeepAlive(true) }
 
     fun setAskBeforeCall(name: String, on: Boolean) = viewModelScope.launch {
         try { client.askBeforeCall(name, on); store.refresh() }

@@ -147,6 +147,7 @@ private fun ExtensionsTabs(vm: ExtensionsViewModel, open: (Route) -> Unit) {
     Segmented(listOf(stringResource(R.string.ext_tab_plugins), stringResource(R.string.ext_tab_skills), stringResource(R.string.ext_tab_mcp)), tab, { vm.tab.value = it })
     EngineGate(vm)
     StatusBanners(vm)
+    if (tab == 0) KeepAliveHint(vm)
     when (tab) {
         0 -> PluginsTab(vm, open)
         1 -> SkillsTab(vm)
@@ -206,6 +207,17 @@ private fun StatusBanners(vm: ExtensionsViewModel) {
         }
         RestartState.Restarting -> Notice(stringResource(R.string.ext_restarting), Tone.Info, busy = true)
         RestartState.Idle -> {}
+    }
+}
+
+/** 引擎常驻 is off but a plugin works in the background (a heartbeat, a bot): suggest it (#52). */
+@Composable
+private fun KeepAliveHint(vm: ExtensionsViewModel) {
+    val list by vm.store.list.collectAsStateWithLifecycle()
+    val s by vm.settings.collectAsStateWithLifecycle()
+    if (!io.github.jackwener.dsh.core.engine.EngineKeepAlive.suggest(s.engineKeepAlive, s.pluginBackgroundSeen, list?.plugins.orEmpty())) return
+    Notice(stringResource(R.string.engine_keep_alive_hint), Tone.Info) {
+        DButton(stringResource(R.string.engine_keep_alive_enable), { vm.enableEngineKeepAlive() }, size = BtnSize.Sm, variant = BtnVariant.Outline)
     }
 }
 

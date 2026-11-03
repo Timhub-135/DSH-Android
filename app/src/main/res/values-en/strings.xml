@@ -512,6 +512,10 @@
     <string name="keep_alive_open">Open</string>
     <string name="keep_alive_exempt">Exempt</string>
     <string name="keep_alive_via_app_info">In App info: %1$s</string>
+    <string name="engine_keep_alive">Keep engine running</string>
+    <string name="engine_keep_alive_desc">By default the engine runs on demand: it stops 5 minutes after the last task, and plugin timers and bot connections stop with it. Turn this on for background plugins such as heartbeats or QQ bots; the engine then keeps running with an ongoing notification and uses a bit more battery.</string>
+    <string name="engine_keep_alive_hint">A plugin needs to keep running in the background (e.g. a heartbeat or a bot). Turn on “Keep engine running” so it doesn’t stop when DSH is in the background.</string>
+    <string name="engine_keep_alive_enable">Turn on</string>
     <string name="shizuku_missing">Not installed (optional)</string>
     <string name="shizuku_stopped">Installed, not running</string>
     <string name="shizuku_unauthorized">Not authorized</string>

@@ -173,6 +173,7 @@ class SettingsViewModel @Inject constructor(
     fun setAllowExternalApps(on: Boolean) = viewModelScope.launch { repo.setAllowExternalApps(on) }
     fun setVoiceOnAssist(on: Boolean) = viewModelScope.launch { repo.setVoiceOnAssist(on) }
     fun setAutoUpdateCheck(on: Boolean) = viewModelScope.launch { repo.setAutoUpdateCheck(on) }
+    fun setEngineKeepAlive(on: Boolean) = viewModelScope.launch { engine.setKeepAlive(on) }
     fun setAgentScreen(on: Boolean) { viewModelScope.launch { repo.setAgentScreen(on) } }
     fun restartEngine() = viewModelScope.launch { sessions.restartEngine() }
     val engineLog: String? get() = io.github.jackwener.dsh.core.engine.EngineDiagnostics.logTail(context, 4000)

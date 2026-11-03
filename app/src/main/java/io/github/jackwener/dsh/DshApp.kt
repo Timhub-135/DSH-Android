@@ -23,6 +23,7 @@ class DshApp : Application() {
     @Inject lateinit var secrets: dagger.Lazy<io.github.jackwener.dsh.core.data.SecretStore>
     @Inject lateinit var agentScreen: dagger.Lazy<AgentScreen>
     @Inject lateinit var updater: dagger.Lazy<io.github.jackwener.dsh.core.update.AppUpdater>
+    @Inject lateinit var engine: dagger.Lazy<io.github.jackwener.dsh.core.engine.EngineManager>
 
     override fun onCreate() {
         super.onCreate()
@@ -42,6 +43,8 @@ class DshApp : Application() {
             runCatching { triggers.get().sync() }.onFailure { android.util.Log.e("DshApp", "automation sync failed", it) }
             if (settings.get().current().floatingBall) runCatching { FloatingBallService.setEnabled(this@DshApp, true) }
             runCatching { agentScreen.get().restoreLeftoverMutes() }
+            // 引擎常驻 (#52): every start of :main, including the one boot / an app update / a re-created engine service causes.
+            runCatching { engine.get().keepAlive() }
         }
     }
 

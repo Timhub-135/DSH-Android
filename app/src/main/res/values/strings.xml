@@ -512,6 +512,10 @@
     <string name="keep_alive_open">去设置</string>
     <string name="keep_alive_exempt">已豁免</string>
     <string name="keep_alive_via_app_info">在应用信息中：%1$s</string>
+    <string name="engine_keep_alive">引擎常驻</string>
+    <string name="engine_keep_alive_desc">默认按需运行：任务结束 5 分钟后引擎停止，插件的定时器、机器人连接也随之停止。用心跳、QQ 机器人这类后台插件时请打开，引擎会一直运行并显示常驻通知，耗电会多一些。</string>
+    <string name="engine_keep_alive_hint">有插件需要在后台持续运行（如心跳、机器人）。打开「引擎常驻」后，App 退到后台它们也不会停。</string>
+    <string name="engine_keep_alive_enable">打开</string>
     <string name="shizuku_missing">未安装（可选增强）</string>
     <string name="shizuku_stopped">已安装但未启动</string>
     <string name="shizuku_unauthorized">未授权</string>
