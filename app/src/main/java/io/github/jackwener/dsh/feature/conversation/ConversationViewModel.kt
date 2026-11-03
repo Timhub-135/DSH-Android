@@ -21,6 +21,8 @@ import io.github.jackwener.dsh.core.session.Conversation
 import io.github.jackwener.dsh.core.session.PendingApproval
 import io.github.jackwener.dsh.core.session.PendingQuestion
 import io.github.jackwener.dsh.core.session.Projector
+import io.github.jackwener.dsh.core.session.ResolvedModel
+import io.github.jackwener.dsh.core.session.SessionModels
 import io.github.jackwener.dsh.core.session.RowStatus
 import io.github.jackwener.dsh.core.session.SessionLive
 import io.github.jackwener.dsh.core.session.SessionStore
@@ -71,18 +73,19 @@ open class ConversationController(
         .stateIn(viewModelScope, SharingStarted.Eagerly, SessionLive(sessionId.value))
 
     /**
-     * A model / effort change waits (the engine keeps its current route) while any run is active:
-     * the route is process-wide and switching it restarts the engine. True while the settings differ
-     * from the running engine's route for that reason; the composer says the change applies later.
+     * The conversation's model (#53): its own, or the settings default (a new conversation, rows from
+     * before #53); [ResolvedModel.fellBack] when its own is no longer available. The composer's chip
+     * shows and changes this, never the default.
      */
-    val modelChangePending: StateFlow<Boolean> = combine(engine.route, settings, store.status) { route, st, status ->
-        val want = st.choice
-        val differs = route != null && when (val p = want.provider) {
-            null -> !route.provider.startsWith("deepseek-") || route.model != want.model || route.effort != st.effort.id
-            else -> route.provider != p.id || route.model != want.model || route.effort != st.reasoningEffort.orEmpty()
-        }
-        differs && status.values.any { it != RowStatus.Idle }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val model: StateFlow<ResolvedModel> = combine(live, settings) { l, st -> SessionModels.resolve(l.model, st) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SessionModels.resolve(null, Settings()))
+
+    /**
+     * A model / effort change of a running conversation reaches its next model request (the engine
+     * switches the route between steps); the composer says so while it runs.
+     */
+    val modelChangePending: StateFlow<Boolean> = live.map { it.running }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val conversation: StateFlow<Conversation> = live
         .distinctUntilChangedBy { Triple(it.sessionId, it.events.size, it.running) }
@@ -140,14 +143,19 @@ open class ConversationController(
     fun setPreset(p: PermissionPreset) = viewModelScope.launch { store.setPreset(sessionId.value, p) }
     /** Only before the conversation's first message; the store refuses it afterwards. */
     fun setMode(modeId: String) = viewModelScope.launch { store.setMode(sessionId.value, modeId) }
-    /** [provider] "" = DeepSeek. */
-    fun setModel(provider: String, m: String) = viewModelScope.launch { settingsRepo.setModel(provider, m) }
-    fun setEffort(e: Effort) = viewModelScope.launch { settingsRepo.setEffort(e) }
-    /** 推理强度 of the selected third-party model ([level] null = its default). */
+    /** This conversation's model ([provider] "" = DeepSeek); the default (设置 → 模型服务) stays as it is. */
+    fun setModel(provider: String, m: String) = viewModelScope.launch {
+        store.setModel(sessionId.value, SessionModels.pick(model.value.selection, provider, m, settings.value))
+    }
+    /** This conversation's DeepSeek 推理等级. */
+    fun setEffort(e: Effort) = viewModelScope.launch {
+        val cur = model.value.selection
+        if (cur.isDeepSeek) store.setModel(sessionId.value, cur.copy(effort = e.id))
+    }
+    /** 推理强度 of this conversation's third-party model ([level] null = its default). */
     fun setReasoning(level: String?) = viewModelScope.launch {
-        val choice = settings.value.choice
-        val p = choice.provider ?: return@launch
-        settingsRepo.setReasoningChoice(p.id, choice.model, level)
+        val cur = model.value.selection
+        if (!cur.isDeepSeek) store.setModel(sessionId.value, cur.copy(effort = level))
     }
 
     /** The screen is in front again: its session counts as seen (unread dot, notification). */

@@ -70,6 +70,9 @@ import javax.inject.Singleton
 
 enum class ApprovalOutcome { AllowOnce, AllowSession, Reject }
 
+/** The engine refused a conversation's model route (`android/session/model`, #53). */
+class SessionModelRefused(val label: String, message: String, cause: Throwable) : Exception(message, cause)
+
 /**
  * Sessions: sends prompts, persists every `session.event` (plus app-local error/stop records) as
  * the single log both the conversation and trajectory views project from, keeps the app-side
@@ -151,7 +154,8 @@ class SessionStore @Inject constructor(
         val events = dao.events(sessionId).let { rows -> withContext(Dispatchers.Default) { rows.map { it.toLogged() } } }
         val preset = entity?.preset?.let { PermissionPreset.of(it) } ?: settings.current().defaultPreset
         android.util.Log.i(TAG, "session $sessionId loaded: preset ${preset.id} (${if (entity?.preset != null) "session row" else "settings default"})")
-        MutableStateFlow(SessionLive(sessionId, entity?.title ?: "", events, running = false, preset = preset, modeId = entity?.modeId, exists = entity != null))
+        MutableStateFlow(SessionLive(sessionId, entity?.title ?: "", events, running = false, preset = preset, modeId = entity?.modeId,
+            model = SessionModels.of(entity), exists = entity != null))
             .also { states[sessionId] = it }
     }
 
@@ -295,11 +299,15 @@ class SessionStore @Inject constructor(
         // A prompt the app sent for the user is not re-sent verbatim by 重试 (that asks to continue).
         val retryText = text.takeUnless { appPrompt }
         if (existing?.parentId == null) ownedRoots += sessionId
-        if (existing == null) dao.upsert(SessionEntity(sessionId, text.lineSequence().first().take(40), now, now, ruleId, running = true, preset = live.preset.id, modeId = live.modeId))
+        // A conversation the user starts keeps its own model from now on (#53): the one picked in the
+        // composer, else a copy of the default. Automation runs keep following the default.
+        val ownModel = live.model ?: settings.current().takeIf { existing == null && ruleId == null && ruleIdOfSession(sessionId) == null }?.let(SessionModels::default)
+        if (existing == null) dao.upsert(SessionEntity(sessionId, text.lineSequence().first().take(40), now, now, ruleId, running = true, preset = live.preset.id, modeId = live.modeId,
+            modelProvider = ownModel?.provider, modelId = ownModel?.model, modelEffort = ownModel?.effort))
         else dao.setRunning(sessionId, true)
         // Steering a running session keeps it an engine run (no startingEngine): see hasEngineRuns.
         mutate(sessionId) { it.copy(running = true, exists = true, runStartedAt = it.runStartedAt.takeIf { _ -> live.running } ?: now,
-            startingEngine = it.startingEngine || !live.running, waitingForNetwork = false) }
+            startingEngine = it.startingEngine || !live.running, waitingForNetwork = false, model = it.model ?: ownModel) }
         engine.cancelIdleShutdown()
         if (ruleIdOfSession(sessionId) != null && engine.restarts.open && engine.state.value != EngineState.Ready) {
             // Circuit breaker open: automations do not restart a crash-looping engine (Doctor shows why).
@@ -307,7 +315,8 @@ class SessionStore @Inject constructor(
             return
         }
         try {
-            val sdk = engine.sdk()
+            val model = runModel(sessionId)
+            val sdk = engine.sdk(engine.sessionRoute(model))
             mutate(sessionId) { it.copy(startingEngine = false) }
             engine.markSessionOpened()
             val gen = engine.generation
@@ -317,6 +326,8 @@ class SessionStore @Inject constructor(
             // also after a resume (a new engine generation knows neither).
             sendPreset(sdk, sessionId, flowOf(sessionId).value.preset)
             sendMode(sdk, sessionId, flowOf(sessionId).value.modeId)
+            // Its level is checked against what this engine reported (refreshed at start).
+            sendModel(sdk, sessionId, engine.sessionRoute(model))
             sdk.request("session/prompt", buildJsonObject {
                 put("sessionId", sessionId)
                 putJsonArray("contentBlocks") {
@@ -326,6 +337,8 @@ class SessionStore @Inject constructor(
             })
         } catch (e: NoCredentialsException) {
             fail(sessionId, "no_credentials", e.message ?: "", null, retryText)
+        } catch (e: SessionModelRefused) {
+            fail(sessionId, "engine", context.getString(R.string.err_session_model, e.label, e.message ?: ""), null, retryText)
         } catch (e: EngineBackgroundStartException) {
             // Android 12+ refused the engine's foreground service from the background (e.g. battery
             // optimization re-enabled): degrade to a notification that runs the task when tapped.
@@ -525,6 +538,59 @@ class SessionStore @Inject constructor(
                 put("mode", mode.payload(io.github.jackwener.dsh.core.model.modeDisplayName(context, mode)))
             })
         }.onFailure { android.util.Log.w(TAG, "android/session/mode failed", it) }
+    }
+
+    /**
+     * The model [sessionId] runs its next prompt on (#53): its own, or the default. A model of its own that
+     * is no longer available (provider removed or disabled, model dropped) is replaced by the default, which
+     * the composer announced (ResolvedModel.fellBack).
+     */
+    private suspend fun runModel(sessionId: String): SessionModel {
+        val r = SessionModels.resolve(flowOf(sessionId).value.model, settings.current())
+        if (r.fellBack) {
+            android.util.Log.i(TAG, "session $sessionId: its model is gone; using the default ${r.selection}")
+            setModel(sessionId, r.selection)
+        }
+        return r.selection
+    }
+
+    /**
+     * The composer changed the conversation's model (#53). A new conversation keeps it until its row is
+     * written; a running one gets it at once: the engine routes the turn's next model request with it.
+     */
+    suspend fun setModel(sessionId: String, m: SessionModel) {
+        android.util.Log.i(TAG, "session $sessionId model -> $m")
+        if (dao.get(sessionId) != null) dao.setModel(sessionId, m.provider, m.model, m.effort)
+        mutate(sessionId) { it.copy(model = m) }
+        val live = flowOf(sessionId).value
+        val sdk = engine.sdkIfReady()
+        if (sdk != null && live.running && !live.startingEngine && resumedIn[sessionId] == engine.generation &&
+            SessionModels.available(m, settings.current())) {
+            runCatching { sendModel(sdk, sessionId, engine.sessionRoute(m)) }.onFailure { android.util.Log.w(TAG, "model switch of running $sessionId refused", it) }
+        }
+    }
+
+    /**
+     * The conversation's model route (`android/session/model`, ENGINE-CONTRACT §2), before each prompt and
+     * when it changes during a run. A refused route fails the prompt ([SessionModelRefused]); an engine
+     * without the method keeps the default route.
+     */
+    private suspend fun sendModel(sdk: JsonRpcPeer, sessionId: String, route: io.github.jackwener.dsh.core.engine.EngineRoute) {
+        try {
+            sdk.request("android/session/model", buildJsonObject {
+                put("sessionId", sessionId)
+                put("provider", route.provider)
+                put("model", route.model)
+                if (route.effort.isNotEmpty()) put("reasoningEffort", route.effort)
+            })
+        } catch (e: JsonRpcException) {
+            if (e.message?.contains("unknown DeepSeek Harness SDK runtime method") == true) {
+                android.util.Log.w(TAG, "android/session/model unsupported by this engine: ${e.message}")
+                return
+            }
+            val label = settings.current().providers.firstOrNull { it.id == route.provider }?.name?.let { "$it / ${route.model}" } ?: route.model
+            throw SessionModelRefused(label, e.message ?: "", e)
+        }
     }
 
     suspend fun delete(sessionId: String) {

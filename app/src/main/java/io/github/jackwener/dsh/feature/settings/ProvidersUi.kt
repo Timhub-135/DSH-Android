@@ -142,7 +142,10 @@ private fun CheckMessage(text: String, ok: Boolean) {
     Text(text, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), style = DshType.xxs12, color = if (ok) c.labelTertiary else c.error)
 }
 
-/** 默认模型: DeepSeek models, then each enabled provider's models; effort only for DeepSeek. */
+/**
+ * 默认模型 (new conversations start from it, #53; each conversation then keeps its own, changed in the
+ * composer): DeepSeek models, then each enabled provider's models; the effort of the selected model.
+ */
 @Composable
 fun DefaultModelCard(vm: SettingsViewModel) {
     val c = Dsh.colors
@@ -170,7 +173,18 @@ fun DefaultModelCard(vm: SettingsViewModel) {
         }
         if (choice.isDeepSeek) SettingsRow(stringResource(R.string.effort), stringResource(R.string.effort_desc), stacked = true) {
             Segmented(Effort.entries.map { it.label }, s.effort.ordinal, { vm.setEffort(Effort.entries[it]) })
-        } else SettingsRow(stringResource(R.string.effort), stringResource(R.string.prov_model_desc))
+        } else {
+            // The levels the engine reported for the model (#46); 默认 = none sent.
+            val levels = s.reasoning?.levels.orEmpty()
+            val p = choice.provider
+            if (levels.isEmpty() || p == null) SettingsRow(stringResource(R.string.effort), stringResource(R.string.prov_model_desc))
+            else SettingsRow(stringResource(R.string.effort), stringResource(R.string.effort_desc), stacked = true) {
+                val chosen = s.reasoningEffort
+                Segmented(listOf(stringResource(R.string.effort_default)) + levels.map { it.name },
+                    if (chosen == null) 0 else levels.indexOfFirst { it.id == chosen } + 1,
+                    { i -> vm.setReasoningChoice(p.id, choice.model, if (i == 0) null else levels[i - 1].id) })
+            }
+        }
     }
 }
 

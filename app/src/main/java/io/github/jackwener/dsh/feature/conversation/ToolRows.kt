@@ -52,6 +52,7 @@ import io.github.jackwener.dsh.core.session.Block
 import io.github.jackwener.dsh.core.session.AUTO_CONTINUE
 import io.github.jackwener.dsh.core.session.NETWORK_WAIT
 import io.github.jackwener.dsh.core.session.USER_CONTINUE
+import io.github.jackwener.dsh.core.session.MODEL_SWITCH
 import io.github.jackwener.dsh.core.session.ToolState
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -250,12 +251,15 @@ fun NoticeRow(b: Block.Notice) {
     val text = when {
         b.kind == AUTO_CONTINUE -> stringResource(R.string.auto_continue_notice)
         b.kind == USER_CONTINUE -> stringResource(R.string.user_continue_notice)
+        b.kind == MODEL_SWITCH -> stringResource(R.string.model_switched_notice, b.text)
         !b.resumed -> b.text
         else -> stringResource(if (b.kind == NETWORK_WAIT) R.string.network_resumed else R.string.engine_resumed)
     }
+    // History, not a warning: a continuation that started, a model switch the user made.
+    val quiet = b.resumed || b.kind == MODEL_SWITCH
     Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(if (b.resumed) c.labelTertiary else c.warn))
+        Box(Modifier.size(6.dp).clip(CircleShape).background(if (quiet) c.labelTertiary else c.warn))
         Spacer(Modifier.width(8.dp))
-        Text(text, style = DshType.xs13, color = if (b.resumed) c.labelTertiary else c.warnLabel)
+        Text(text, style = DshType.xs13, color = if (quiet) c.labelTertiary else c.warnLabel)
     }
 }

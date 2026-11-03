@@ -89,6 +89,12 @@ val CONTINUATION_NOTICES = setOf(NETWORK_WAIT, ENGINE_RECOVERING, USER_CONTINUE)
 /** [Block.Notice.kind] of plugin-guard's continuation nudge (a `user/message` with this `source.kind`, ENGINE-CONTRACT §2.7). */
 const val AUTO_CONTINUE = "android-continue"
 
+/**
+ * [Block.Notice.kind] of dsh's model-switch notice: the `user/message` (`source.kind`, summary "from → to")
+ * it adds to the first request after a conversation's model changed (#53, `android/session/model`).
+ */
+const val MODEL_SWITCH = "model-selection"
+
 /** plugin-guard's ignorable record of why a turn ended (ENGINE-CONTRACT §2.7). */
 const val TURN_OUTCOME = "plugin:android-guard/turn-outcome"
 
@@ -250,6 +256,8 @@ object Projector {
                 "user/message" -> {
                     // plugin-guard continued the turn: the model stopped with open todos.
                     if (d.o("source")?.s("kind") == AUTO_CONTINUE && !e.isReplacement()) { current(e.time, e.seq).blocks += Block.Notice("n${e.seq}", "", AUTO_CONTINUE); continue }
+                    // The conversation's model changed (#53): a quiet line where the new model takes over.
+                    if (d.o("source")?.s("kind") == MODEL_SWITCH && !e.isReplacement()) { current(e.time, e.seq).blocks += Block.Notice("n${e.seq}", d.o("source")?.s("summary").orEmpty(), MODEL_SWITCH); continue }
                     if (d.o("source")?.s("kind") != "user" || e.isReplacement()) continue
                     val content = d["content"]
                     val prev = awaiting

@@ -86,7 +86,11 @@
     <string name="effort_low_desc">Быстрее и экономнее</string>
     <string name="effort_high_desc">Сбалансированный вариант по умолчанию для большинства задач</string>
     <string name="effort_max_desc">Для самых сложных задач, где важен результат</string>
-    <string name="model_applies_next">Применится после завершения текущей задачи</string>
+    <string name="model_applies_next">Применится со следующего шага текущей задачи</string>
+    <string name="model_this_session">Меняет только эту беседу; значение по умолчанию для новых — в Настройки → Модели</string>
+    <string name="session_model_gone">Модель этой беседы %1$s больше недоступна; следующее сообщение использует модель по умолчанию %2$s</string>
+    <string name="err_session_model">Модель этой беседы %1$s недоступна: %2$s</string>
+    <string name="model_switched_notice">Модель переключена: %1$s</string>
     <string name="preset_read_only">Только чтение</string>
     <string name="preset_ask">Подтверждать операции</string>
     <string name="preset_full">Полный доступ</string>
@@ -457,10 +461,10 @@
     <string name="key_invalid">API Key недоступен: %1$s</string>
     <string name="key_get">Получить API Key на platform.deepseek.com</string>
     <string name="key_clear">Удалить</string>
-    <string name="set_default_model">Модель по умолчанию</string>
+    <string name="set_default_model">Модель по умолчанию для новых бесед</string>
     <string name="model_flash_desc">Контекст 1M, поддержка изображений, быстрая</string>
     <string name="model_pro_desc">Более сильные рассуждения и планирование</string>
-    <string name="effort_desc">Применится при следующем запуске</string>
+    <string name="effort_desc">По умолчанию для новых бесед; в каждой беседе можно изменить в меню модели</string>
     <string name="set_capabilities">Возможности телефона</string>
     <string name="set_capabilities_desc">Отключённые возможности агенту не передаются. Для возможностей с системными разрешениями разрешение запросят при первом использовании.</string>
     <string name="grp_files">Файлы</string>
@@ -698,7 +702,7 @@
     <string name="prov_err_url">Укажи адрес интерфейса, начиная с https:// или http://</string>
     <string name="prov_err_key">Укажи API Key</string>
     <string name="prov_err_models">Отметь хотя бы одну модель</string>
-    <string name="prov_model_desc">Использовать настройки рассуждений модели по умолчанию</string>
+    <string name="prov_model_desc">У этой модели нет уровней рассуждений (или они ещё неизвестны)</string>
     <string name="prov_context_window">Контекстное окно</string>
     <string name="prov_max_output">Макс. вывод</string>
     <string name="prov_limit_auto">Авто</string>

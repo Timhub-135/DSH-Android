@@ -104,7 +104,7 @@ class MigrationTest {
                 "VALUES ('s1', '整理下载', 1, 2, NULL, 0, NULL, 1, 0, 0, NULL, 'chat')")
             Migrations.SQL_3_4.forEach { c.exec(it) }
             for (table in listOf("sessions", "events", "rules", "rule_runs", "usage"))
-                assertEquals("table $table matches the v$DB_VERSION schema", expectedColumns(DB_VERSION, table), c.columns(table))
+                assertEquals("table $table matches the v4 schema", expectedColumns(4, table), c.columns(table))
             c.createStatement().use { st ->
                 st.executeQuery("SELECT title, modeId, muted FROM sessions").use { rs ->
                     assertTrue(rs.next()); assertEquals("整理下载", rs.getString("title")); assertEquals("chat", rs.getString("modeId")); assertEquals(0, rs.getInt("muted"))
@@ -114,10 +114,30 @@ class MigrationTest {
         }
     }
 
+    @Test fun `4 to 5 adds the conversation's model, unset (the settings default) for every existing conversation`() {
+        create(4).use { c ->
+            c.exec("INSERT INTO sessions (id, title, createdAt, updatedAt, ruleId, running, parentId, pinned, archived, unread, preset, modeId, muted) " +
+                "VALUES ('s1', '整理下载', 1, 2, NULL, 0, NULL, 1, 0, 0, 'read-only', 'chat', 1)")
+            c.exec("INSERT INTO events (sessionId, seq, type, json, time) VALUES ('s1', 0, 'user/message', '{}', 5)")
+            Migrations.SQL_4_5.forEach { c.exec(it) }
+            for (table in listOf("sessions", "events", "rules", "rule_runs", "usage"))
+                assertEquals("table $table matches the v$DB_VERSION schema", expectedColumns(DB_VERSION, table), c.columns(table))
+            c.createStatement().use { st ->
+                st.executeQuery("SELECT title, preset, modeId, muted, modelProvider, modelId, modelEffort FROM sessions").use { rs ->
+                    assertTrue(rs.next()); assertEquals("整理下载", rs.getString("title")); assertEquals("read-only", rs.getString("preset"))
+                    assertEquals("chat", rs.getString("modeId")); assertEquals(1, rs.getInt("muted"))
+                    assertNull(rs.getString("modelProvider")); assertNull(rs.getString("modelId")); assertNull(rs.getString("modelEffort"))
+                }
+                st.executeQuery("SELECT COUNT(*) FROM events").use { rs -> rs.next(); assertEquals(1, rs.getInt(1)) }
+            }
+            c.exec("UPDATE sessions SET modelProvider = 'kimi', modelId = 'kimi-k3', modelEffort = NULL WHERE id = 's1'")
+        }
+    }
+
     @Test fun `a fresh database has the same tables as a migrated one`() {
         create(DB_VERSION).use { fresh ->
             create(2).use { migrated ->
-                (Migrations.SQL_2_3 + Migrations.SQL_3_4).forEach { migrated.exec(it) }
+                (Migrations.SQL_2_3 + Migrations.SQL_3_4 + Migrations.SQL_4_5).forEach { migrated.exec(it) }
                 for (table in listOf("sessions", "events", "rules", "rule_runs", "usage")) assertEquals(table, fresh.columns(table), migrated.columns(table))
             }
         }

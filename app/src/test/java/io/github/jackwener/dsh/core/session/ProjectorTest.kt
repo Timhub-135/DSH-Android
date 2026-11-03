@@ -45,6 +45,20 @@ class ProjectorTest {
         assertEquals(1, conv.todos?.size)
     }
 
+    @Test fun `a model switch shows as a quiet notice after the prompt it came with (#53)`() {
+        val events = listOf(
+            ev(0, "turn/start", """{"turn":2}"""),
+            ev(1, "user/message", """{"source":{"kind":"user"},"content":[{"type":"text","text":"再仔细想想"}]}"""),
+            ev(2, "user/message", """{"source":{"kind":"model-selection","form":"notice","summary":"deepseek-official/deepseek-flash → kimi/kimi-k3"},"content":[{"type":"text","text":"[model changed: …]"}]}"""),
+            ev(3, "assistant/message", """{"message":{"content":[{"type":"text","text":"好"}]}}"""),
+        )
+        val turn = Projector.conversation(events, running = true).turns.single()
+        assertEquals("再仔细想想", turn.user?.text)
+        val notice = turn.blocks.filterIsInstance<Block.Notice>().single()
+        assertEquals(MODEL_SWITCH, notice.kind)
+        assertEquals("deepseek-official/deepseek-flash → kimi/kimi-k3", notice.text)
+    }
+
     @Test fun `app prompt is not shown as a user message`() {
         val events = listOf(
             ev(0, "turn/start", """{"turn":1}"""),
