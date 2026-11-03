@@ -511,7 +511,7 @@ private fun AboutSection(vm: SettingsViewModel) {
     }
     report?.let { DiagnosticsSheet(it, vm::closeDiagnostics) }
     SettingsGroupTitle(stringResource(R.string.keep_alive))
-    KeepAliveCard()
+    KeepAliveCard(vm)
     vm.engineLog?.let { log ->
         SettingsGroupTitle(stringResource(R.string.engine_log))
         CodeCard(log, label = "engine.log", maxHeight = 320.dp)
@@ -522,18 +522,21 @@ private fun AboutSection(vm: SettingsViewModel) {
     }
 }
 
-/** Vendor keep-alive: detected ROM, recents-lock tip and one button per setting worth changing. */
+/** 引擎常驻, then vendor keep-alive: detected ROM, recents-lock tip and one button per setting worth changing. */
 @Composable
-private fun KeepAliveCard() {
+private fun KeepAliveCard(vm: SettingsViewModel) {
     val c = Dsh.colors
     val context = LocalContext.current
     val zh = isZh()
     val tick = resumeTick()
     val rom = KeepAliveLauncher.rom
     val exempt = remember(tick) { KeepAliveLauncher.batteryExempt(context) }
+    val s by vm.settings.collectAsStateWithLifecycle()
     SettingsCard {
+        SettingsRow(stringResource(R.string.engine_keep_alive), stringResource(R.string.engine_keep_alive_desc), divider = false,
+            trailing = { DSwitch(s.engineKeepAlive, vm::setEngineKeepAlive) })
         SettingsRow(stringResource(R.string.keep_alive_device, rom.label(zh)),
-            stringResource(R.string.keep_alive_desc) + "\n" + RomKeepAlive.recentsHint(rom.vendor).text(zh), divider = false)
+            stringResource(R.string.keep_alive_desc) + "\n" + RomKeepAlive.recentsHint(rom.vendor).text(zh))
         RomKeepAlive.kinds(rom.vendor).forEach { kind ->
             val battery = kind == RomKeepAlive.Kind.Battery
             SettingsRow(stringResource(when (kind) {

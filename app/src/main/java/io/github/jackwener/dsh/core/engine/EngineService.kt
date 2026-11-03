@@ -14,13 +14,15 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.jackwener.dsh.R
 import io.github.jackwener.dsh.core.platform.Notifications
+import io.github.jackwener.dsh.core.trigger.BootReceiver
 import java.io.File
 import java.io.FileDescriptor
 import io.github.jackwener.dsh.engine.NodeRuntime
 
 /**
  * Hosts Node + dsh in the dedicated `:engine` process. Node can be started only once per process,
- * so when it exits the whole process exits and the app restarts it on demand.
+ * so when it exits the whole process exits and the app restarts it on demand (or right away with
+ * 引擎常驻, see [EngineKeepAlive]).
  */
 class EngineService : Service() {
     @Volatile private var started = false
@@ -40,7 +42,17 @@ class EngineService : Service() {
             .onFailure { Log.w(TAG, "startForeground refused", it) }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A null intent is Android re-creating a 引擎常驻 (sticky) service after its process was killed:
+        // the process has no Node yet, so ask :main (cold-starting it if needed) to start the engine again.
+        if (intent == null) {
+            Log.i(TAG, "re-created by the system; asking the app to restore the engine")
+            runCatching { sendBroadcast(Intent(this, BootReceiver::class.java).setAction(EngineKeepAlive.ACTION_RESTORE)) }
+                .onFailure { Log.w(TAG, "restore broadcast failed", it) }
+            return START_STICKY
+        }
+        return EngineKeepAlive.startMode(intent.getBooleanExtra(EngineKeepAlive.EXTRA_KEEP_ALIVE, false))
+    }
 
     private val binder = object : IEngineService.Stub() {
         override fun isRunning() = started

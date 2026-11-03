@@ -509,6 +509,10 @@
     <string name="keep_alive_open">Открыть настройки</string>
     <string name="keep_alive_exempt">Исключено</string>
     <string name="keep_alive_via_app_info">В сведениях о приложении: %1$s</string>
+    <string name="engine_keep_alive">Движок всегда работает</string>
+    <string name="engine_keep_alive_desc">По умолчанию движок запускается по необходимости: через 5 минут после последней задачи он останавливается, а с ним таймеры и подключения ботов из плагинов. Включи для фоновых плагинов вроде heartbeat или QQ-бота: движок будет работать постоянно с закреплённым уведомлением и чуть больше расходовать батарею.</string>
+    <string name="engine_keep_alive_hint">Плагину нужно постоянно работать в фоне (например, heartbeat или бот). Включи «Движок всегда работает», чтобы он не останавливался, когда DSH в фоне.</string>
+    <string name="engine_keep_alive_enable">Включить</string>
     <string name="shizuku_missing">Не установлено (необязательно)</string>
     <string name="shizuku_stopped">Установлено, но не запущено</string>
     <string name="shizuku_unauthorized">Нет разрешения</string>

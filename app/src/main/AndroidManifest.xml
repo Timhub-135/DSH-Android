@@ -198,7 +198,7 @@
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Runs the on-device AI agent engine while a user-started task or automation is executing." />
+                android:value="Runs the on-device AI agent engine while a user-started task or automation is executing, or continuously when the user turns on Keep engine running for background plugins." />
         </service>
 
         <service

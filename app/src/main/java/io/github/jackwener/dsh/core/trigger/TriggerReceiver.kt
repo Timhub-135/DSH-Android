@@ -7,6 +7,8 @@ import android.location.LocationManager
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.jackwener.dsh.core.engine.EngineKeepAlive
+import io.github.jackwener.dsh.core.engine.EngineManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
@@ -51,12 +53,17 @@ class TriggerReceiver : BroadcastReceiver() {
     }
 }
 
-/** Re-registers all automations after boot or app update. */
+/**
+ * Re-registers all automations after boot or app update. Also wakes `:main` when Android re-created the
+ * engine's 引擎常驻 service ([EngineKeepAlive.ACTION_RESTORE]); after boot / update DshApp's start restores it.
+ */
 @AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
     @Inject lateinit var hub: TriggerHub
+    @Inject lateinit var engine: dagger.Lazy<EngineManager>
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == EngineKeepAlive.ACTION_RESTORE) { engine.get().keepAlive(restored = true); return }
         if (intent.action !in ACTIONS) return
         val pending = goAsync()
         CoroutineScope(Dispatchers.Default).launch {

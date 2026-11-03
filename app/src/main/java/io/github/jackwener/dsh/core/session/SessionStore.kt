@@ -568,6 +568,7 @@ class SessionStore @Inject constructor(
                     if (op == null || (op is JsonPrimitive && op.contentOrNull == "append")) d else JsonObject(d + (SURFACE_OP_KEY to op))
                 }
                 if (dao.get(sessionId) != null) dao.insertEvent(EventEntity(sessionId, seq, type, data.toString(), time))
+                else noteBackgroundSession(sessionId)
                 val logged = LoggedEvent(seq, type, time, data)
                 mutate(sessionId) { s -> if (s.events.any { it.seq == seq }) s else s.copy(events = s.events + logged).withLogged(logged) }
                 if (type == "session/title") data.s("title")?.let { rename(sessionId, it) }
@@ -584,6 +585,15 @@ class SessionStore @Inject constructor(
                 if (!running) onTurnFinished(sessionId)
             }
         }
+    }
+
+    @Volatile private var backgroundSeen = false
+
+    /** A plugin's background session ran ([SessionVisibility]): 设置 → 扩展 may suggest 引擎常驻 (#52). Stored once. */
+    private suspend fun noteBackgroundSession(sessionId: String) {
+        if (backgroundSeen || ruleIdOfSession(sessionId) != null) return
+        backgroundSeen = true
+        if (!settings.current().pluginBackgroundSeen) runCatching { settings.setPluginBackgroundSeen() }
     }
 
     /**

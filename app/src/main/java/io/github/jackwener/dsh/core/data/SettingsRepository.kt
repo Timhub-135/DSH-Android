@@ -93,6 +93,10 @@ data class Settings(
     val extUpdateBadge: Int = 0,
     /** 自动检查更新: a background check for a new DSH release at most once a day (core/update/AppUpdater). */
     val autoUpdateCheck: Boolean = true,
+    /** 引擎常驻 (#52): the engine stays up (foreground service) instead of stopping when idle. Off by default. */
+    val engineKeepAlive: Boolean = false,
+    /** A plugin ran a background session (heartbeat, bot) at some point: 设置 → 扩展 may suggest [engineKeepAlive]. */
+    val pluginBackgroundSeen: Boolean = false,
 ) {
     /** Built-in then user modes, in display order. */
     val allModes: List<SessionMode> get() = SessionModes.all(modes)
@@ -146,6 +150,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val mcpServers = stringPreferencesKey("mcp_servers_json")
         val extUpdateBadge = intPreferencesKey("ext_update_badge")
         val autoUpdateCheck = booleanPreferencesKey("auto_update_check")
+        val engineKeepAlive = booleanPreferencesKey("engine_keep_alive")
+        val pluginBackgroundSeen = booleanPreferencesKey("plugin_background_seen")
         val reasoningChoices = stringPreferencesKey("reasoning_choices_json")
         val reasoningCatalog = stringPreferencesKey("reasoning_catalog_json")
     }
@@ -181,6 +187,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         mcpServers = decodeMcp(this[K.mcpServers]),
         extUpdateBadge = this[K.extUpdateBadge] ?: 0,
         autoUpdateCheck = this[K.autoUpdateCheck] ?: true,
+        engineKeepAlive = this[K.engineKeepAlive] ?: false,
+        pluginBackgroundSeen = this[K.pluginBackgroundSeen] ?: false,
     )
 
     /** [provider] "" = DeepSeek. */
@@ -240,6 +248,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
     suspend fun setReflectExperience(on: Boolean) = context.store.edit { it[K.reflect] = on }
     suspend fun setVoiceOnAssist(on: Boolean) = context.store.edit { it[K.voiceOnAssist] = on }
     suspend fun setAutoUpdateCheck(on: Boolean) = context.store.edit { it[K.autoUpdateCheck] = on }
+    suspend fun setEngineKeepAlive(on: Boolean) = context.store.edit { it[K.engineKeepAlive] = on }
+    suspend fun setPluginBackgroundSeen() = context.store.edit { it[K.pluginBackgroundSeen] = true }
 
     // ── 扩展 ──
     suspend fun setPluginRegistry(mode: RegistryMode, custom: String) = context.store.edit {
