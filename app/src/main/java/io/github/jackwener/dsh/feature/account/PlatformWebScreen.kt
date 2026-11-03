@@ -100,11 +100,15 @@ fun PlatformWebScreen(page: PlatformPage, account: AccountRepository) {
     // This screen is a destination (PlatformWebRoute): Back walks the popup's and then the page's
     // history here, and with none left the NavHost pops the destination (MainActivity then closes the page).
     var canGoBack by remember { mutableStateOf(false) }
-    BackHandler(popup != null) {
+    BackHandler(popup != null || (canGoBack && web != null)) {
+        blocked = false
         val p = popup
-        if (p != null && p.canGoBack()) p.goBack() else popup = null
+        when {
+            p == null -> web?.goBack()
+            p.canGoBack() -> p.goBack()
+            else -> popup = null
+        }
     }
-    BackHandler(popup == null && canGoBack && web != null) { web?.goBack() }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, web) {
