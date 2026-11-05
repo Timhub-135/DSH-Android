@@ -1,21 +1,21 @@
 {
   "format": 1,
   "packageName": "io.github.jackwener.dsh",
-  "versionCode": 27,
-  "versionName": "0.3.9",
+  "versionCode": 28,
+  "versionName": "0.3.10",
   "minSdk": 29,
   "apk": {
-    "name": "DSH-Android-v0.3.9-arm64.apk",
-    "size": 101010086,
-    "sha256": "dc012d468ec67ce21a4880bc311497d3697388b1c230adfd384655faf05b7ed0",
+    "name": "DSH-Android-v0.3.10-arm64.apk",
+    "size": 101039427,
+    "sha256": "765f23b7f33ae3f36faf2145d03770744f9279568443253b6a65bba02794bc66",
     "urls": [
-      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.9/DSH-Android-v0.3.9-arm64.apk"
+      "https://github.com/jackwener/DSH-Android/releases/download/v0.3.10/DSH-Android-v0.3.10-arm64.apk"
     ]
   },
   "signerSha256": "2b37a375ead19476e5d0d9e38920032ea9822e880dcc7540a14e5ab6ac1f4f69",
   "notes": {
-    "zh": "- **修复 Google 账号登录 DeepSeek 失败**（#49，感谢 @shteudguy 的 PR #13）：整个登录流程（包括 Google 的账号选择弹窗）都留在 App 的登录页里，不再跳到浏览器报 400。如果 Google 不允许在 App 内登录，会提示改用“用浏览器登录”，在系统浏览器里登录完自动回到 App；登录页底部也能随时选这个方式\n- **引擎常驻**（#52）：设置 → 关于 → 后台保活 里新增开关，默认关闭。默认引擎在任务结束 5 分钟后自动停止以省电，心跳、QQ 机器人这类后台插件会跟着停；打开后引擎一直运行并显示常驻通知，开机、更新或意外退出后自动重新启动。装了这类插件时，扩展页会提示打开\n- **每个会话单独记住模型和推理等级**（#53）：输入框的模型按钮只改当前会话，运行中切换从下一步生效，不打断任务。设置里的是新会话的默认值；插件开的后台会话使用默认值，不会跟着前台切到高档位。会话原来的模型被删掉时会提示并改用默认\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
-    "en": "- **Fixed DeepSeek sign-in with a Google account** (#49, thanks @shteudguy for PR #13): the whole sign-in, including Google's account picker, now stays in the app's sign-in page instead of failing with a 400 in the browser. If Google refuses in-app sign-in, the app offers \"Sign in with browser\", which completes in the system browser and returns to the app; that option is also always available at the bottom of the sign-in page\n- **Keep engine running** (#52): new switch under Settings → About, off by default. By default the engine stops 5 minutes after the last task to save battery, which also stops background plugins such as heartbeat or QQ bots; with the switch on it keeps running with an ongoing notification and restarts after boot, updates or crashes. The extensions page suggests it when such plugins are installed\n- **Per-conversation model and reasoning level** (#53): the model button in the composer changes only the current conversation; switching mid-task applies from the next step. Settings now holds the default for new conversations; plugin background sessions use the default. If a conversation's model is removed, it falls back to the default with a notice\n- Not yet tested on a real device"
+    "zh": "- **修复从悬浮球开的对话一直失败**（#57）：悬浮球面板会重新打开最近用过的对话，但这个对话在 App 里删掉后，面板还在用它，引擎重启后发消息就报“会话已存在”。现在删除对话后面板会换成新对话；万一再遇到这种情况，App 会先恢复会话再发送，不再报错\n- **后台屏长时间挂机不再黑屏**（#56）：Android 13 起，后台屏一段时间没有点击操作就会被系统关掉。现在后台屏会一直保持亮着（不影响手机屏幕正常熄灭）。每次操作后台屏前都会检查，关了就自动唤醒或重建，并把原来的 App 移回去，任务继续；实在恢复不了会明确告诉模型，不再对着黑屏空转\n- **后台保活页说得更清楚**（#55）：自启动、后台运行这两项系统读不到状态，不再显示容易误会的灰点，改为“需在系统设置中确认”。电池优化分“已豁免、未豁免、无法读取”。iQOO / vivo 不再把 OriginOS 误显示成 Funtouch\n- 这版没有在真机上测试过\n- 仅支持 arm64-v8a，Android 10 及以上；正式签名，可直接覆盖安装，也可以在 设置 → 关于 里直接更新",
+    "en": "- **Fixed conversations from the floating ball always failing** (#57): the quick panel reopened a recent conversation even after it was deleted, and after an engine restart sending failed with \"session already exists\". Deleting a conversation now moves the panel to a new one, and if this ever happens again the app resumes the session and sends instead of failing\n- **The agent screen no longer goes black after idling** (#56): since Android 13 the system turns the agent screen off when nothing taps it for a while. The agent screen now stays on (your phone's screen still turns off normally); before each action it is checked and woken or recreated with its apps moved back, so the task continues. If it can't be recovered the model gets a clear error\n- **Clearer background keep-alive page** (#55): auto-start and background-running states can't be read, so they now say \"check in system settings\" instead of a misleading grey dot; battery optimization shows exempt / not exempt / can't read; vivo / iQOO no longer mislabel OriginOS as Funtouch\n- Not yet tested on a real device"
   },
-  "publishedAt": "2026-11-03T15:00:45Z"
+  "publishedAt": "2026-11-05T01:50:36Z"
 }
