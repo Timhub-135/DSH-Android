@@ -17,10 +17,24 @@ object RomKeepAlive {
 
     data class Rom(val vendor: Vendor, val os: String?) {
         fun label(zh: Boolean): String {
+            // vivo without positive OriginOS evidence: OriginOS 6 on some iQOO/vivo phones still reports Funtouch props,
+            // so name neither skin rather than guess wrong.
+            if (vendor == Vendor.Vivo && os.isNullOrBlank()) return if (zh) "vivo / iQOO 系统" else "vivo / iQOO OS"
             val v = vendor.label(zh).ifEmpty { if (zh) "Android 设备" else "Android device" }
             return if (os.isNullOrBlank()) v else "$v · $os"
         }
     }
+
+    /** What a keep-alive row can honestly say about its own state. */
+    enum class RowStatus { Exempt, NotExempt, Unreadable, ManualCheck }
+
+    /**
+     * Only battery optimisation has a public API; vendor autostart / background switches cannot be read, so
+     * those rows never claim a state. [readBatteryExempt] throwing means "couldn't read", not "not exempt".
+     */
+    fun status(kind: Kind, readBatteryExempt: () -> Boolean): RowStatus =
+        if (kind != Kind.Battery) RowStatus.ManualCheck
+        else runCatching(readBatteryExempt).fold({ if (it) RowStatus.Exempt else RowStatus.NotExempt }, { RowStatus.Unreadable })
 
     /**
      * One candidate screen. [pkgExtras] / [labelExtras] are extra keys that receive our package
@@ -43,7 +57,7 @@ object RomKeepAlive {
     val PROPS = listOf(
         "ro.miui.ui.version.name", "ro.mi.os.version.name", "ro.build.version.emui", "hw_sc.build.platform.version",
         "ro.build.version.magic", "ro.build.version.opporom", "ro.build.version.oplusrom", "ro.oxygen.version",
-        "ro.build.version.realmeui", "ro.vivo.os.name", "ro.vivo.os.version", "ro.build.version.oneui",
+        "ro.build.version.realmeui", "ro.vivo.os.name", "ro.vivo.os.version", "ro.vivo.os.build.display.id", "ro.build.version.oneui",
         "ro.build.display.id",
     )
 
@@ -79,14 +93,13 @@ object RomKeepAlive {
                 vendor == Vendor.Realme && p("ro.build.version.realmeui") != null -> "realme UI ${p("ro.build.version.realmeui")!!.removePrefix("V")}"
                 else -> (p("ro.build.version.oplusrom") ?: p("ro.build.version.opporom"))?.let { "ColorOS ${it.removePrefix("V")}" }
             }
+            // Only positive "OriginOS" evidence is trusted. ro.vivo.os.name says "Funtouch" on some OriginOS 6 builds and
+            // ro.vivo.os.version tracks Android there, so without it we stay neutral (see Rom.label).
             Vendor.Vivo -> {
-                val name = p("ro.vivo.os.name")
-                val ver = p("ro.vivo.os.version")
-                when {
-                    name != null && name.contains("origin", true) || display.contains("origin", true) -> "OriginOS" + (ver?.let { " $it" } ?: "")
-                    name != null || ver != null -> "Funtouch OS" + (ver?.let { " $it" } ?: "")
-                    else -> null
-                }
+                val origin = listOf(p("ro.vivo.os.name"), p("ro.vivo.os.build.display.id"), display).any { it?.contains("origin", true) == true }
+                if (!origin) null
+                else p("ro.vivo.os.build.display.id")?.let { Regex("OriginOS\\s*([0-9][0-9.]*)", RegexOption.IGNORE_CASE).find(it) }
+                    ?.let { "OriginOS ${it.groupValues[1]}" } ?: "OriginOS"
             }
             Vendor.Samsung -> p("ro.build.version.oneui")?.toIntOrNull()?.takeIf { it >= 10000 }?.let { "One UI ${it / 10000}.${it / 100 % 100}" }
             Vendor.Meizu -> display.takeIf { it.contains("flyme", true) }?.let { Regex("Flyme\\s*(?:OS)?\\s*([0-9][0-9.]*)", RegexOption.IGNORE_CASE).find(it) }

@@ -530,7 +530,6 @@ private fun KeepAliveCard(vm: SettingsViewModel) {
     val zh = isZh()
     val tick = resumeTick()
     val rom = KeepAliveLauncher.rom
-    val exempt = remember(tick) { KeepAliveLauncher.batteryExempt(context) }
     val s by vm.settings.collectAsStateWithLifecycle()
     SettingsCard {
         SettingsRow(stringResource(R.string.engine_keep_alive), stringResource(R.string.engine_keep_alive_desc), divider = false,
@@ -538,15 +537,29 @@ private fun KeepAliveCard(vm: SettingsViewModel) {
         SettingsRow(stringResource(R.string.keep_alive_device, rom.label(zh)),
             stringResource(R.string.keep_alive_desc) + "\n" + RomKeepAlive.recentsHint(rom.vendor).text(zh))
         RomKeepAlive.kinds(rom.vendor).forEach { kind ->
-            val battery = kind == RomKeepAlive.Kind.Battery
+            // Re-read on every resume so coming back from system settings updates the battery row.
+            val status = remember(tick, kind) { KeepAliveLauncher.status(context, kind) }
+            val statusText = stringResource(when (status) {
+                RomKeepAlive.RowStatus.Exempt -> R.string.keep_alive_exempt
+                RomKeepAlive.RowStatus.NotExempt -> R.string.keep_alive_not_exempt
+                RomKeepAlive.RowStatus.Unreadable -> R.string.keep_alive_unreadable
+                RomKeepAlive.RowStatus.ManualCheck -> R.string.keep_alive_manual_check
+            })
+            // Vendor switches can't be read, so those rows get no dot: a grey dot read as "off". State is always spelled out in text.
+            val dot = when (status) {
+                RomKeepAlive.RowStatus.Exempt -> DotKind.Done
+                RomKeepAlive.RowStatus.NotExempt -> DotKind.Error
+                RomKeepAlive.RowStatus.Unreadable -> DotKind.Warn
+                RomKeepAlive.RowStatus.ManualCheck -> null
+            }
             SettingsRow(stringResource(when (kind) {
                 RomKeepAlive.Kind.AutoStart -> R.string.keep_alive_autostart
                 RomKeepAlive.Kind.Background -> R.string.keep_alive_background
                 RomKeepAlive.Kind.Battery -> R.string.keep_alive_battery
-            }), keepAliveHint(kind, zh),
-                leading = { StateDot(if (!battery) DotKind.Idle else if (exempt) DotKind.Done else DotKind.Error) },
+            }), keepAliveHint(kind, zh) + if (status == RomKeepAlive.RowStatus.Exempt) "" else "\n" + statusText,
+                leading = if (dot == null) null else ({ StateDot(dot) }),
                 trailing = {
-                    if (battery && exempt) Text(stringResource(R.string.keep_alive_exempt), style = DshType.xs13, color = c.labelTertiary)
+                    if (status == RomKeepAlive.RowStatus.Exempt) Text(statusText, style = DshType.xs13, color = c.labelTertiary)
                     else DButton(stringResource(R.string.keep_alive_open), { KeepAliveLauncher.open(context, kind) }, variant = BtnVariant.Outline, size = BtnSize.Sm)
                 })
         }

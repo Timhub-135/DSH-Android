@@ -515,6 +515,9 @@
     <string name="keep_alive_battery">Battery optimisation</string>
     <string name="keep_alive_open">Open</string>
     <string name="keep_alive_exempt">Exempt</string>
+    <string name="keep_alive_not_exempt">Not exempt</string>
+    <string name="keep_alive_unreadable">Couldn’t read; check in system settings</string>
+    <string name="keep_alive_manual_check">Check in system settings (can’t be detected automatically)</string>
     <string name="keep_alive_via_app_info">In App info: %1$s</string>
     <string name="engine_keep_alive">Keep engine running</string>
     <string name="engine_keep_alive_desc">By default the engine runs on demand: it stops 5 minutes after the last task, and plugin timers and bot connections stop with it. Turn this on for background plugins such as heartbeats or QQ bots; the engine then keeps running with an ongoing notification and uses a bit more battery.</string>

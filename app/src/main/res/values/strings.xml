@@ -515,6 +515,9 @@
     <string name="keep_alive_battery">电池优化</string>
     <string name="keep_alive_open">去设置</string>
     <string name="keep_alive_exempt">已豁免</string>
+    <string name="keep_alive_not_exempt">未豁免</string>
+    <string name="keep_alive_unreadable">无法读取，请在系统设置中确认</string>
+    <string name="keep_alive_manual_check">需在系统设置中确认（无法自动检测）</string>
     <string name="keep_alive_via_app_info">在应用信息中：%1$s</string>
     <string name="engine_keep_alive">引擎常驻</string>
     <string name="engine_keep_alive_desc">默认按需运行：任务结束 5 分钟后引擎停止，插件的定时器、机器人连接也随之停止。用心跳、QQ 机器人这类后台插件时请打开，引擎会一直运行并显示常驻通知，耗电会多一些。</string>
