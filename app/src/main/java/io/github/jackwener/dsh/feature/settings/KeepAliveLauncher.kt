@@ -23,8 +23,9 @@ object KeepAliveLauncher {
 
     private fun sysProp(key: String): String? = runCatching { getProp?.invoke(null, key) as? String }.getOrNull()
 
-    fun batteryExempt(c: Context): Boolean =
-        runCatching { c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(c.packageName) }.getOrDefault(false)
+    /** Live state of [kind]; only Battery is readable, and a failed read is [RomKeepAlive.RowStatus.Unreadable], not "not exempt". */
+    fun status(c: Context, kind: Kind): RomKeepAlive.RowStatus =
+        RomKeepAlive.status(kind) { c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(c.packageName) }
 
     fun intent(c: Context, t: Target): Intent {
         val i = if (t.action != null) Intent(t.action) else Intent()
@@ -54,7 +55,7 @@ object KeepAliveLauncher {
     /** Opens the first candidate that starts, else App info. Already exempt → the exemption list, not the request dialog. */
     fun open(c: Context, kind: Kind) {
         var targets = RomKeepAlive.targets(rom.vendor, kind)
-        if (kind == Kind.Battery && batteryExempt(c)) targets = targets.filterNot { it.action == "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" }
+        if (kind == Kind.Battery && status(c, kind) == RomKeepAlive.RowStatus.Exempt) targets = targets.filterNot { it.action == "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" }
         for (t in targets + RomKeepAlive.APP_DETAILS) {
             val i = intent(c, t)
             if (!launchable(c, i)) continue

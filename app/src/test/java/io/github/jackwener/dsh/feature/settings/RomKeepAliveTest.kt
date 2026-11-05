@@ -1,6 +1,7 @@
 package io.github.jackwener.dsh.feature.settings
 
 import io.github.jackwener.dsh.feature.settings.RomKeepAlive.Kind
+import io.github.jackwener.dsh.feature.settings.RomKeepAlive.RowStatus
 import io.github.jackwener.dsh.feature.settings.RomKeepAlive.Vendor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,12 +43,36 @@ class RomKeepAliveTest {
         assertEquals("HarmonyOS 3.0.0", detect("HUAWEI", "HUAWEI", "hw_sc.build.platform.version" to "3.0.0", "ro.build.version.emui" to "EmotionUI_13.0.0").os)
         assertEquals("EMUI 12.0.0", detect("HUAWEI", "HUAWEI", "ro.build.version.emui" to "EmotionUI_12.0.0").os)
         assertEquals("ColorOS 13.1.0", detect("OPPO", "OPPO", "ro.build.version.oplusrom" to "V13.1.0").os)
-        assertEquals("OriginOS 4.0", detect("vivo", "vivo", "ro.vivo.os.name" to "OriginOS", "ro.vivo.os.version" to "4.0").os)
-        assertEquals("Funtouch OS 13.0", detect("vivo", "vivo", "ro.vivo.os.name" to "Funtouch", "ro.vivo.os.version" to "13.0").os)
         assertEquals("One UI 6.1", detect("samsung", "samsung", "ro.build.version.oneui" to "60100").os)
         assertEquals("Flyme 10.5.0.1", detect("Meizu", "meizu", "ro.build.display.id" to "Flyme 10.5.0.1A").os)
         assertNull(detect("Google").os)
         assertEquals("三星 · One UI 6.1", detect("samsung", "samsung", "ro.build.version.oneui" to "60100").label(true))
+    }
+
+    @Test fun vivoNeverGuessesFuntouch() {
+        // iQOO on OriginOS 6 reports ro.vivo.os.name=Funtouch and an Android-like version: stay neutral.
+        val iqoo = detect("vivo", "iQOO", "ro.vivo.os.name" to "Funtouch", "ro.vivo.os.version" to "16.0")
+        assertNull(iqoo.os)
+        assertEquals("vivo / iQOO 系统", iqoo.label(true))
+        assertEquals("vivo / iQOO OS", iqoo.label(false))
+        assertEquals("vivo / iQOO 系统", detect("vivo").label(true))
+        // Positive OriginOS evidence is still shown.
+        assertEquals("OriginOS", detect("vivo", "vivo", "ro.vivo.os.name" to "OriginOS", "ro.vivo.os.version" to "4.0").os)
+        assertEquals("OriginOS 6", detect("vivo", "iQOO", "ro.vivo.os.name" to "Funtouch", "ro.vivo.os.build.display.id" to "OriginOS 6").os)
+        assertEquals("vivo · OriginOS 5.0", detect("vivo", "vivo", "ro.vivo.os.build.display.id" to "OriginOS 5.0").label(false))
+        // Settings candidates are unchanged.
+        assertEquals("com.vivo.permissionmanager", RomKeepAlive.targets(Vendor.Vivo, Kind.AutoStart).first().pkg)
+    }
+
+    @Test fun rowStatus() {
+        assertEquals(RowStatus.Exempt, RomKeepAlive.status(Kind.Battery) { true })
+        assertEquals(RowStatus.NotExempt, RomKeepAlive.status(Kind.Battery) { false })
+        assertEquals(RowStatus.Unreadable, RomKeepAlive.status(Kind.Battery) { throw SecurityException("denied") })
+        // Vendor switches are never read (or inferred), even if the battery read would succeed.
+        for (k in listOf(Kind.AutoStart, Kind.Background)) {
+            assertEquals(RowStatus.ManualCheck, RomKeepAlive.status(k) { true })
+            assertEquals(RowStatus.ManualCheck, RomKeepAlive.status(k) { error("must not be read") })
+        }
     }
 
     @Test fun propFailuresAreSoft() {

@@ -512,6 +512,9 @@
     <string name="keep_alive_battery">Оптимизация батареи</string>
     <string name="keep_alive_open">Открыть настройки</string>
     <string name="keep_alive_exempt">Исключено</string>
+    <string name="keep_alive_not_exempt">Не исключено</string>
+    <string name="keep_alive_unreadable">Не удалось прочитать; проверь в настройках системы</string>
+    <string name="keep_alive_manual_check">Проверь в настройках системы (автоматически не определяется)</string>
     <string name="keep_alive_via_app_info">В сведениях о приложении: %1$s</string>
     <string name="engine_keep_alive">Движок всегда работает</string>
     <string name="engine_keep_alive_desc">По умолчанию движок запускается по необходимости: через 5 минут после последней задачи он останавливается, а с ним таймеры и подключения ботов из плагинов. Включи для фоновых плагинов вроде heartbeat или QQ-бота: движок будет работать постоянно с закреплённым уведомлением и чуть больше расходовать батарею.</string>
