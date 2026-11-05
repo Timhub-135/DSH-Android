@@ -10,6 +10,7 @@ import android.media.ImageReader
 import android.os.Binder
 import android.os.Build
 import android.os.Looper
+import android.os.PowerManager
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.ByteArrayOutputStream
@@ -26,6 +27,8 @@ class ShellUserService : IShellService.Stub() {
     private class Screen(val display: VirtualDisplay, val reader: ImageReader) {
         /** The last frame read: ImageReader only hands out a frame once, and a still screen sends no new ones. */
         var last: Bitmap? = null
+        /** Keeps the display's own power group on (see [keepAwake]); null when the display shares the user's group. */
+        var awake: PowerManager.WakeLock? = null
     }
     private val displays = HashMap<Int, Screen>()
     private val muted = MuteLedger(File("/data/local/tmp/dsh_audio_mute"))
@@ -37,7 +40,7 @@ class ShellUserService : IShellService.Stub() {
 
     override fun destroy() {
         runCatching { muted.restoreAll(::appops) }
-        synchronized(displays) { displays.values.forEach { it.display.release(); it.reader.close() } }
+        synchronized(displays) { displays.values.forEach { it.awake?.release(); it.display.release(); it.reader.close() } }
         exitProcess(0)
     }
 
@@ -79,7 +82,9 @@ class ShellUserService : IShellService.Stub() {
                     failures += "flags 0x${flags.toString(16)}: ${ShellIdentity.describe(t)}"; null
                 } ?: continue
                 val id = vd.display.displayId
-                synchronized(displays) { displays[id] = Screen(vd, reader) }
+                val screen = Screen(vd, reader)
+                if (flags and OWN_DISPLAY_GROUP != 0) screen.awake = keepAwake(id)
+                synchronized(displays) { displays[id] = screen }
                 setImePolicy(id)
                 displayError = null
                 return id
@@ -94,6 +99,16 @@ class ShellUserService : IShellService.Stub() {
     }
 
     override fun lastDisplayError(): String? = displayError
+
+    override fun wakeDisplay(displayId: Int): Boolean {
+        val s = synchronized(displays) { displays[displayId] } ?: return false
+        synchronized(s) {
+            val old = s.awake ?: return false
+            old.release()
+            s.awake = keepAwake(displayId)
+            return s.awake != null
+        }
+    }
 
     // ---- Android/data and Android/obb (FileTools) ----------------------------------------------
 
@@ -121,7 +136,7 @@ class ShellUserService : IShellService.Stub() {
     override fun releaseDisplay(displayId: Int) {
         val s = synchronized(displays) { displays.remove(displayId) } ?: return
         synchronized(s) {
-            s.display.release(); s.reader.close()
+            s.awake?.release(); s.display.release(); s.reader.close()
             s.last?.let { b -> synchronized(b) { b.recycle() } }
         }
     }
@@ -257,6 +272,22 @@ class ShellUserService : IShellService.Stub() {
             PUBLIC or OWN_CONTENT_ONLY or TRUSTED,
         )
     }
+
+    /**
+     * A screen wake lock bound to [displayId] (the hidden PowerManager.newWakeLock(flags, tag, displayId), Android 13+).
+     * A display with its own display group is its own power group, which Android turns off after the
+     * screen-off timeout without user activity on it; reads and screenshots are none, so an agent that only
+     * watched for ~10 minutes was left with a black, OFF display (#56). ACQUIRE_CAUSES_WAKEUP also turns a
+     * group that already went off back on (where the system honours it for shell). Only for displays with
+     * their own group: on the user's group it would keep their screen on.
+     */
+    @SuppressLint("WakelockTimeout")
+    private fun keepAwake(displayId: Int): PowerManager.WakeLock? = runCatching {
+        val pm = shellContext.getSystemService(PowerManager::class.java) ?: error("no PowerManager")
+        @Suppress("DEPRECATION") val flags = PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP
+        val m = PowerManager::class.java.getMethod("newWakeLock", Int::class.java, String::class.java, Int::class.java)
+        (m.invoke(pm, flags, "dsh:agent-screen", displayId) as PowerManager.WakeLock).apply { setReferenceCounted(false); acquire() }
+    }.onFailure { Log.w(TAG, "agent display wake lock failed", it) }.getOrNull()
 
     /** IWindowManager.setDisplayImePolicy(LOCAL): the keyboard opens on the agent display, never on the user's. */
     @SuppressLint("PrivateApi")

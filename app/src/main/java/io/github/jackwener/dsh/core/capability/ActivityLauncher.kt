@@ -98,6 +98,7 @@ class ActivityLauncher @Inject constructor(
      */
     suspend fun open(call: CallContext, screen: String?, verb: String, intent: Intent, expect: String?, create: Boolean, mute: Boolean = true): ToolResult {
         val t = agent.target(call.sessionId, screen, create)
+        t.off?.let { return ToolResult.error("agent_display_off", it) }
         val name = expect?.let { agent.label(it) }
         val result = if (t.agent) {
             if (agent.userTookOver(call.sessionId)) return ToolResult.error("user_took_over",
