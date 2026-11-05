@@ -29,4 +29,7 @@ internal class LogSeqs {
         offsets[sessionId] = gen to offset
         return seq + offset
     }
+
+    /** The session was deleted. */
+    fun forget(sessionId: String) { offsets.remove(sessionId) }
 }

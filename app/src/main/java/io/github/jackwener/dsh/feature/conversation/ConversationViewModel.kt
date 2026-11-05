@@ -107,7 +107,12 @@ open class ConversationController(
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    init { store.setViewing(this, id) }
+    init {
+        store.setViewing(this, id)
+        // The conversation shown here was deleted (here, in the app's drawer while the quick panel shows it, …):
+        // a new one, never a message under the deleted id (#57; the engine still has that session).
+        viewModelScope.launch { store.deleted.collect { if (it == sessionId.value) newSession() } }
+    }
 
     open fun open(id: String) {
         sessionId.value = id

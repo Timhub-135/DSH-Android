@@ -53,6 +53,7 @@ import io.github.jackwener.dsh.core.designsystem.Radius
 import io.github.jackwener.dsh.core.designsystem.Whale
 import io.github.jackwener.dsh.core.designsystem.elevated
 import io.github.jackwener.dsh.core.designsystem.pressable
+import io.github.jackwener.dsh.core.session.PanelSession
 import io.github.jackwener.dsh.core.session.RowStatus
 import io.github.jackwener.dsh.core.session.SessionStore
 import io.github.jackwener.dsh.feature.conversation.ChatStream
@@ -85,7 +86,6 @@ class QuickActivity : ComponentActivity() {
     private var useContext by mutableStateOf(false)
     /** Bumped when a summon asks to start listening (not saved: a rotation does not listen again). */
     private var listenRequest by mutableIntStateOf(0)
-    private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
 
     /** Android 10–12: the in-app language (AppLanguage); 13+ does it itself. */
     override fun attachBaseContext(newBase: android.content.Context) = super.attachBaseContext(io.github.jackwener.dsh.core.platform.AppLanguage.wrap(newBase))
@@ -142,7 +142,7 @@ class QuickActivity : ComponentActivity() {
                         }
                         Box(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                             ComposerSlot(vm, composer, settings, live, conv, hero = false, prepare = { text ->
-                                prefs.edit().putString(KEY_LAST, vm.id).putLong(KEY_AT, System.currentTimeMillis()).apply()
+                                PanelSession.remember(this@QuickActivity, vm.id)
                                 val ctx = if (useContext && ScreenContext.text != null)
                                     "[The user summoned you while looking at ${ScreenContext.packageName}. Screen content:]\n${ScreenContext.text}\n" else ""
                                 useContext = false
@@ -170,7 +170,7 @@ class QuickActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (prefs.getString(KEY_LAST, null) == vm.id) prefs.edit().putLong(KEY_AT, System.currentTimeMillis()).apply()
+        PanelSession.touch(this, vm.id)
     }
 
     private fun isShareOrTask(i: Intent) = i.action == Intent.ACTION_SEND || i.action == Intent.ACTION_SEND_MULTIPLE || i.action == ACTION_RUN_TASK
@@ -180,12 +180,14 @@ class QuickActivity : ComponentActivity() {
         if (!i.getBooleanExtra(EXTRA_FROM_ASSIST, false) && !i.getBooleanExtra(EXTRA_SCREEN, false) && i.action != ACTION_RUN_TASK) ScreenContext.captureFromAccessibility()
     }
 
-    /** Re-summoning after a dismiss shows the panel's last session if it is still running or was used in the last 10 minutes. */
+    /**
+     * Re-summoning after a dismiss shows the panel's last session if it is still running or was used in the
+     * last 10 minutes ([PanelSession]; a deleted one is forgotten).
+     */
     private fun reopenRecent(): Boolean {
-        val id = prefs.getString(KEY_LAST, null) ?: return false
-        val busy = store.status.value[id].let { it != null && it != RowStatus.Idle }
-        if (busy || System.currentTimeMillis() - prefs.getLong(KEY_AT, 0) < RECENT_MS) { vm.open(id); return true }
-        return false
+        val id = PanelSession.reopen(this, System.currentTimeMillis()) { store.status.value[it].let { s -> s != null && s != RowStatus.Idle } } ?: return false
+        vm.open(id)
+        return true
     }
 
     /**
@@ -197,7 +199,7 @@ class QuickActivity : ComponentActivity() {
         val shot = ScreenContext.takeShot()
         lifecycleScope.launch {
             if (!reopened && draftFor(vm.id).isEmpty) store.conversations.first().filter { !it.archived }.maxByOrNull { it.updatedAt }
-                ?.takeIf { System.currentTimeMillis() - it.updatedAt < RECENT_MS }?.let { vm.open(it.id) }
+                ?.takeIf { System.currentTimeMillis() - it.updatedAt < PanelSession.RECENT_MS }?.let { vm.open(it.id) }
             shot?.let { addBitmap(draftFor(vm.id), it) }
         }
     }
@@ -271,12 +273,8 @@ class QuickActivity : ComponentActivity() {
         /** Open this panel conversation (the floating ball while a run started here goes on). */
         const val EXTRA_SESSION = "session"
         private const val STATE_USE_CONTEXT = "use_context"
-        private const val KEY_LAST = "last_session"
-        private const val KEY_AT = "last_at"
-        private const val RECENT_MS = 10 * 60_000L
 
         /** The conversation last used in the panel (a run started there reopens in the panel, not the app). */
-        fun panelSession(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_LAST, null)
-        private const val PREFS = "quick_panel"
+        fun panelSession(context: Context): String? = PanelSession.last(context)
     }
 }

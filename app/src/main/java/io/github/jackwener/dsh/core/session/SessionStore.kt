@@ -37,7 +37,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -122,6 +125,15 @@ class SessionStore @Inject constructor(
      * engine but must not drive the sidebar, the floating ball or the "running" notification's tap.
      */
     private val ownedRoots = ConcurrentHashMap.newKeySet<String>()
+
+    /** Conversations deleted in this process: their ids are never prompted again (see [deleted]). */
+    private val deletedIds = ConcurrentHashMap.newKeySet<String>()
+    private val _deleted = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    /**
+     * A conversation was deleted. A screen showing it moves to a new one: the engine keeps the deleted
+     * session's log, so a message under the same id would continue it, or fail after an engine restart (#57).
+     */
+    val deleted: SharedFlow<String> = _deleted.asSharedFlow()
 
     private val _status = MutableStateFlow<Map<String, RowStatus>>(emptyMap())
     /** Live sidebar status per session (approval / question / running). */
@@ -328,13 +340,27 @@ class SessionStore @Inject constructor(
             sendMode(sdk, sessionId, flowOf(sessionId).value.modeId)
             // Its level is checked against what this engine reported (refreshed at start).
             sendModel(sdk, sessionId, engine.sessionRoute(model))
-            sdk.request("session/prompt", buildJsonObject {
+            val request = buildJsonObject {
                 put("sessionId", sessionId)
                 putJsonArray("contentBlocks") {
                     addJsonObject { put("type", "text"); put("text", text) }
                     images.forEach { (mime, data) -> addJsonObject { put("type", "image"); put("mimeType", mime); put("data", data) } }
                 }
-            })
+            }
+            try {
+                sdk.request("session/prompt", request)
+            } catch (e: JsonRpcException) {
+                // #57: the engine has this session, but not open in this generation (it was opened in an earlier one
+                // before any of its events reached the app, so it was not resumed above): open it, then prompt again.
+                if (!SessionOpen.alreadyExists(e.message) || sessionId in deletedIds) throw e
+                android.util.Log.w(TAG, "session $sessionId exists in the engine but was not open: resuming it (${e.message})")
+                if (!resume(sdk, sessionId)) throw e
+                resumedIn[sessionId] = gen
+                sendPreset(sdk, sessionId, flowOf(sessionId).value.preset)
+                sendMode(sdk, sessionId, flowOf(sessionId).value.modeId)
+                sendModel(sdk, sessionId, engine.sessionRoute(model))
+                sdk.request("session/prompt", request)
+            }
         } catch (e: NoCredentialsException) {
             fail(sessionId, "no_credentials", e.message ?: "", null, retryText)
         } catch (e: SessionModelRefused) {
@@ -598,6 +624,11 @@ class SessionStore @Inject constructor(
         dao.delete(sessionId); dao.deleteEvents(sessionId); states.remove(sessionId)
         ShotStore.deleteSession(context, sessionId)
         _status.update { it - sessionId }
+        // The engine keeps the session's log: its id must not come back as a new conversation (#57).
+        deletedIds += sessionId
+        resumedIn.remove(sessionId); logSeqs.forget(sessionId)
+        PanelSession.forget(context, sessionId)
+        _deleted.emit(sessionId)
     }
 
     // ---- SDK callbacks ---------------------------------------------------------------------------

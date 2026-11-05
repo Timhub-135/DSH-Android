@@ -153,6 +153,11 @@ an offset past its log (`LogSeqs`), never treating a seq as a cross-generation i
   enabled third-party models and stores the answer; the composer's 推理强度 section lists exactly these levels plus
   默认 (none when `efforts` is empty or the engine has not answered yet).
 - `session/prompt`, `session/resume`, `shutdown`. There is no per-session cancel: stopping a run stops the engine.
+  `session/prompt` creates a session the process does not have open; one stored by an earlier engine process must be
+  `session/resume`d first (the app does that once per generation for a conversation with logged engine events),
+  else dsh refuses with `session "<id>" already exists`. The app answers that refusal (a session whose events never
+  reached it) with `session/resume` and the prompt again (#57, js/test/session-open-engine.test.mjs). A deleted
+  conversation's id is never sent again: the engine keeps its log.
   `session/prompt` also accepts an optional `clientTimeZone` (IANA); the app does not send it, so the engine uses its
   process `TZ` (patch 11). Each request carries a
   `dsh-time-context` reading (date, time, zone, elapsed time) so relative requests ("tomorrow 7:00") resolve.
