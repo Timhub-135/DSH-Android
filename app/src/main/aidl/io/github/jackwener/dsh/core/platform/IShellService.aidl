@@ -22,6 +22,8 @@ interface IShellService {
     void restoreAudio() = 9;
     /** Why the last createDisplay returned -1 ("<Exception>: <message>" of the last flag set tried, earlier ones after it); null after a success. */
     String lastDisplayError() = 10;
+    /** Re-acquires the agent display's wake lock with ACQUIRE_CAUSES_WAKEUP (it went OFF); false when it has none or it failed. */
+    boolean wakeDisplay(int displayId) = 18;
 
     // ---- Android/data and Android/obb for FileTools (ShellFiles): java.io in this process, no shell strings.
     // Failures throw IllegalStateException / IllegalArgumentException with "<Exception>: <message>".

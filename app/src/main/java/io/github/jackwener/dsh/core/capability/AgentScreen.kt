@@ -59,8 +59,11 @@ data class TaskRow(val taskId: Int, val displayId: Int, val packageName: String,
     }
 }
 
-/** Where a screen/app call acts: the session's agent display, or the user's screen ([note] says why). */
-data class ScreenTarget(val displayId: Int, val agent: Boolean, val note: String? = null)
+/**
+ * Where a screen/app call acts: the session's agent display, or the user's screen ([note] says why).
+ * [off]: the agent display is off and could not be brought back; the call should fail with agent_display_off and this message.
+ */
+data class ScreenTarget(val displayId: Int, val agent: Boolean, val note: String? = null, val off: String? = null)
 
 /**
  * The agent's own screen (docs/AGENT-SCREEN-V2.md §1): one virtual display per conversation,
@@ -75,7 +78,7 @@ class AgentScreen @Inject constructor(
     private val shizuku: ShizukuShell,
     private val settings: SettingsRepository,
 ) {
-    private class Slot(val displayId: Int) {
+    private class Slot(@Volatile var displayId: Int) {
         @Volatile var lastUsed = SystemClock.elapsedRealtime()
         /** Waits that need the display kept (a takeover card): it is not released as idle meanwhile. */
         val holds = AtomicInteger()
@@ -138,7 +141,7 @@ class AgentScreen @Inject constructor(
         if (screen == "main") return ScreenTarget(Display.DEFAULT_DISPLAY, false)
         // Turning the setting off also ends the agent screens that are open.
         if (current(sessionId) != null && !settings.current().agentScreen) release(sessionId)
-        current(sessionId)?.let { touch(sessionId); return ScreenTarget(it, true) }
+        current(sessionId)?.let { touch(sessionId); return awake(sessionId, it) }
         if (!create) return ScreenTarget(Display.DEFAULT_DISPLAY, false,
             if (screen == "agent") "There is no agent screen in this conversation yet (app_launch / app_open_link open one); this is the user's screen." else null)
         val why = unavailableReason()
@@ -149,6 +152,14 @@ class AgentScreen @Inject constructor(
 
     private suspend fun ensure(sessionId: String): Int? = mutex.withLock {
         current(sessionId)?.let { return it }
+        val id = create() ?: return null
+        slots[key(sessionId)] = Slot(id)
+        publish()
+        id
+    }
+
+    /** A new agent display the size of the main screen (caller holds [mutex]), or null with [lastCreateError] set. */
+    private suspend fun create(): Int? {
         val m = DisplayMetrics().also {
             @Suppress("DEPRECATION") context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(it)
         }
@@ -167,9 +178,50 @@ class AgentScreen @Inject constructor(
             return null
         }
         lastCreateError = null
-        slots[key(sessionId)] = Slot(id)
+        return id
+    }
+
+    private fun state(displayId: Int): Int =
+        context.getSystemService(DisplayManager::class.java).getDisplay(displayId)?.state ?: Display.STATE_UNKNOWN
+
+    /**
+     * The session's agent display, checked to be on before a call uses it. Android can turn it off after a
+     * long idle stretch (#56: black frames, no app); it is then woken, else recreated with its apps moved over.
+     */
+    private suspend fun awake(sessionId: String, displayId: Int): ScreenTarget {
+        if (!displayOff(state(displayId))) return ScreenTarget(displayId, true)
+        return mutex.withLock {
+            val s = slots[key(sessionId)] ?: return@withLock ScreenTarget(displayId, true, off = offMessage(null))
+            // Another call may have brought it back meanwhile.
+            if (!displayOff(state(s.displayId))) return@withLock ScreenTarget(s.displayId, true)
+            Log.w(TAG, "agent display ${s.displayId} is off (state ${state(s.displayId)})")
+            if (runCatching { withContext(Dispatchers.IO) { shizuku.service().wakeDisplay(s.displayId) } }.getOrDefault(false)) {
+                repeat(10) {
+                    if (!displayOff(state(s.displayId))) return@withLock ScreenTarget(s.displayId, true)
+                    delay(100)
+                }
+            }
+            if (!shouldRecreate(Build.VERSION.SDK_INT, state(Display.DEFAULT_DISPLAY))) return@withLock ScreenTarget(s.displayId, true, off = offMessage(null, mainOff = true))
+            recreate(s)
+        }
+    }
+
+    /** Replaces [s]'s display with a new one; its tasks are moved over (keeping their state) or, failing that, relaunched. */
+    private suspend fun recreate(s: Slot): ScreenTarget {
+        val old = s.displayId
+        val carried = carryOver(tasks(), old)
+        val id = create() ?: return ScreenTarget(old, true, off = offMessage(lastCreateError))
+        s.displayId = id
         publish()
-        id
+        val stuck = carried.filterNot { move(it.taskId, id) }
+        // Content left on the old display goes with it (DESTROY_CONTENT_ON_REMOVAL); relaunched below.
+        runCatching { withContext(Dispatchers.IO) { shizuku.service().releaseDisplay(old) } }.onFailure { Log.w(TAG, "release failed", it) }
+        stuck.map { it.packageName }.distinct().forEach { pkg ->
+            val c = runCatching { context.packageManager.getLaunchIntentForPackage(pkg)?.component }.getOrNull() ?: return@forEach
+            shizuku.exec("am start --display $id -n ${c.flattenToShortString()}")
+        }
+        Log.i(TAG, "agent display $old was off; recreated as $id with ${carried.size} task(s)")
+        return ScreenTarget(id, true, recoveredNote(carried.map { label(it.packageName) }.distinct()))
     }
 
     fun touch(sessionId: String) { slots[key(sessionId)]?.lastUsed = SystemClock.elapsedRealtime() }
@@ -341,6 +393,30 @@ class AgentScreen @Inject constructor(
             callError != null -> io.github.jackwener.dsh.core.platform.ShellIdentity.describe(callError)
             else -> "the Shizuku service returned no display and no reason"
         }
+
+        /** Display.getState values in which the agent display shows nothing (a virtual display does not doze, so dozing counts as off). */
+        fun displayOff(state: Int) = state == Display.STATE_OFF || state == Display.STATE_DOZE || state == Display.STATE_DOZE_SUSPEND
+
+        /**
+         * Whether a new display would be on. From Android 13 it gets its own display (power) group, which starts awake;
+         * before that it shares the main screen's, so while the user's screen is off a new one would be off as well.
+         */
+        fun shouldRecreate(sdk: Int, mainState: Int) = sdk >= 33 || !displayOff(mainState)
+
+        /** The apps to carry over from [displayId], oldest first so the most recent ends on top. */
+        fun carryOver(rows: List<TaskRow>, displayId: Int): List<TaskRow> =
+            rows.filter { it.displayId == displayId && it.standard && it.packageName.isNotEmpty() }.reversed()
+
+        /** Model-facing note after the display was recreated. */
+        fun recoveredNote(labels: List<String>): String = "The agent screen had been turned off by Android after a long idle period and was recreated" +
+            (if (labels.isEmpty()) "; nothing was open on it, so open the app again with app_launch." else " with ${labels.joinToString(", ")} back on it; it may have reloaded, so check its state.")
+
+        /** The agent_display_off error for the model: what happened and what it can do without ending the task. */
+        fun offMessage(reason: String?, mainOff: Boolean = false): String = "The agent screen is turned off" +
+            (if (mainOff) " because the phone's screen is off (on this Android version it follows the main screen)"
+            else " (Android switched it off after a long idle period) and could not be recreated" + (reason?.let { ": $it" } ?: "")) +
+            ". Nothing was done on it. Try the call again in a moment; if it keeps failing, tell the user (restarting DSH brings the agent screen back) " +
+            "or pass screen: \"main\" to work on the user's screen."
 
         /** Model-facing note when the call falls back to the user's screen. */
         fun failureNote(reason: String?): String = "Working on the user's screen: the agent screen could not be created on this device" +

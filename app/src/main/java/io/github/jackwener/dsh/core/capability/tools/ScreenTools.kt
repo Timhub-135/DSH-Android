@@ -354,6 +354,7 @@ class ScreenTools @Inject constructor(
 
         override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
             val t = agent.target(call.sessionId, args.str("screen"))
+            t.off?.let { return ToolResult.error("agent_display_off", it) }
             if (t.agent && risk != Risk.read && agent.userTookOver(call.sessionId)) return ToolResult.error("user_took_over",
                 "The user took the app over from the agent screen and is using it on their own screen. Do not operate it; wait for their message or ask them.")
             val r = run(args, call, t)
