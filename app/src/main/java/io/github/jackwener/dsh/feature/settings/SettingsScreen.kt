@@ -54,6 +54,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.jackwener.dsh.BuildConfig
 import io.github.jackwener.dsh.R
+import io.github.jackwener.dsh.core.session.cacheHitRate
 import io.github.jackwener.dsh.core.data.BusySend
 import io.github.jackwener.dsh.core.data.Effort
 import io.github.jackwener.dsh.core.data.ThemeMode
@@ -382,6 +383,7 @@ private fun UsageSection(vm: SettingsViewModel) {
             Stat(stringResource(R.string.usage_cached), Fmt.tokens(today?.cachedTokens ?: 0))
             Stat(stringResource(R.string.usage_output), Fmt.tokens(today?.outputTokens ?: 0))
         }
+        today?.let { cacheHitRate(it.cachedTokens, it.inputTokens) }?.let { SettingsRow(stringResource(R.string.usage_cache_hit), Fmt.percent(it)) }
         if (s.dailyTokenLimit > 0) SettingsRow(stringResource(R.string.daily_limit), Fmt.tokens(s.dailyTokenLimit))
     }
     SettingsGroupTitle(stringResource(R.string.usage_30d))
@@ -392,7 +394,8 @@ private fun UsageSection(vm: SettingsViewModel) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 val day = remember(u.day) { runCatching { java.time.LocalDate.parse(u.day) }.getOrNull() }
                 Row { Text(day?.let { stringResource(R.string.date_md, it.monthValue, it.dayOfMonth) } ?: u.day, Modifier.weight(1f), style = DshType.xs13, color = c.labelSecondary)
-                    Text("${Fmt.tokens(u.inputTokens + u.outputTokens)} tok", style = DshType.mono12, color = c.labelTertiary) }
+                    val hit = cacheHitRate(u.cachedTokens, u.inputTokens)?.let { " · " + stringResource(R.string.usage_cache_hit_short, Fmt.percent(it)) }.orEmpty()
+                    Text("${Fmt.tokens(u.inputTokens + u.outputTokens)} tok$hit", style = DshType.mono12, color = c.labelTertiary) }
                 Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(c.borderL2)) {
                     Box(Modifier.fillMaxWidth((u.inputTokens + u.outputTokens).toFloat() / max).height(4.dp).clip(CircleShape).background(c.kindMessages))
                 }

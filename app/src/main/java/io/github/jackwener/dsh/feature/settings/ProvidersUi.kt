@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.jackwener.dsh.R
+import io.github.jackwener.dsh.core.provider.ModelSearch
 import io.github.jackwener.dsh.core.data.Effort
 import io.github.jackwener.dsh.core.designsystem.BtnSize
 import io.github.jackwener.dsh.core.designsystem.BtnVariant
@@ -157,15 +158,22 @@ fun DefaultModelCard(vm: SettingsViewModel) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val choice = s.choice
     SettingsGroupTitle(stringResource(R.string.set_default_model))
+    val enabled = s.providers.filter { it.enabled }
+    // A long list gets a search field (model id, display name, provider); the selected model stays listed.
+    val searchable = ModelSearch.shown(DEEPSEEK_MODELS.size + enabled.sumOf { it.models.size })
+    var query by remember { mutableStateOf("") }
+    val q = if (searchable) query else ""
+    if (searchable) DInput(query, { query = it }, Modifier.padding(bottom = 8.dp), placeholder = stringResource(R.string.search_models), minHeight = 36.dp)
     SettingsCard {
-        DEEPSEEK_MODELS.forEachIndexed { i, (id, label) ->
+        val deepseek = DEEPSEEK_MODELS.filter { (id, label) -> ModelSearch.matches(q, id, label, "DeepSeek") || (choice.isDeepSeek && choice.model == id) }
+        deepseek.forEachIndexed { i, (id, label) ->
             SettingsRow(label, stringResource(if (id == "deepseek-flash") R.string.model_flash_desc else R.string.model_pro_desc),
                 onClick = { vm.setModel("", id) }, divider = i > 0,
                 trailing = { if (choice.isDeepSeek && choice.model == id) DIcon(R.drawable.dsw_check_outline, size = 16.dp, tint = c.labelPrimary) })
         }
         val check by vm.modelCheck.collectAsStateWithLifecycle()
-        s.providers.filter { it.enabled }.forEach { p ->
-            p.models.forEach { m ->
+        enabled.forEach { p ->
+            p.models.filter { m -> ModelSearch.matches(q, m, p.name) || (choice.provider?.id == p.id && choice.model == m) }.forEach { m ->
                 val mine = check?.takeIf { it.provider == p.id && it.model == m }
                 // Picking an untested model tests it first (ModelVerify.kt); a verified one switches at once.
                 SettingsRow(m, p.name, onClick = { vm.checkModel(p, m, select = true) },
@@ -451,8 +459,14 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
 
     SettingsGroupTitle(stringResource(R.string.model))
     Text(stringResource(R.string.prov_models_desc), Modifier.padding(start = 4.dp, bottom = 8.dp), style = DshType.xs13, color = c.labelTertiary)
+    // A long listing (an aggregator's /models) gets a search field over the model ids.
+    val searchable = ModelSearch.shown(offered.size)
+    var modelQuery by remember { mutableStateOf("") }
+    if (searchable) DInput(modelQuery, { modelQuery = it }, Modifier.padding(bottom = 8.dp), placeholder = stringResource(R.string.search_models), minHeight = 36.dp)
     SettingsCard {
-        offered.forEachIndexed { i, m ->
+        val shownModels = if (searchable) offered.filter { ModelSearch.matches(modelQuery, it) } else offered
+        if (searchable && shownModels.isEmpty()) SettingsRow(stringResource(R.string.search_models_none), divider = false)
+        shownModels.forEachIndexed { i, m ->
             val on = m in selected
             val l = live(m)
             val (images, imagesSrc) = ModelVision.resolve(m, stored(m))
