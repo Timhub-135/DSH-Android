@@ -29,6 +29,15 @@
   - Android 14+：`OWN_FOCUS | STEAL_TOP_FOCUS_DISABLED`（后台屏有独立焦点，不抢用户键盘）
   - 输入法策略设为“只在后台屏本地显示”（`IWindowManager.setDisplayImePolicy`）。
   - 尺寸和密度同主屏。
+  - **兼容模式（不受信任的后台屏，#60）**：`TRUSTED` 和 `OWN_DISPLAY_GROUP` 都要 `ADD_TRUSTED_DISPLAY`（signature 权限，AOSP 给 shell，但有的 ROM 没给，如华为 EMUI 14.2 / Android 12）。所有受信任的 flag 组都失败后，用 `PUBLIC | OWN_CONTENT_ONLY | SUPPORTS_TOUCH | ROTATES_WITH_CONTENT | DESTROY_CONTENT_ON_REMOVAL`，再不行用 `PUBLIC | OWN_CONTENT_ONLY`。不加 `PRESENTATION`（会让别的 App 把后台屏当副屏投放内容）。
+    - 一次 `SecurityException: Requires ADD_TRUSTED_DISPLAY …` 之后，Shizuku 服务把它记在内存和 `/data/local/tmp/dsh_vd_untrusted`（按 SDK + 系统指纹 + 本次开机），之后直接从不受信任的 flag 组开始，不再刷同样的异常；重启或系统升级后重新试一次。
+    - 诊断信息：`agent screen: degraded (untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31)`；全部失败时 `unsupported (…)`，原因在 `agent screen last failure`。“诊断”和设置项说明里写明限制。
+    - 仍然可用：`am start --display`（shell 有 `INTERNAL_SYSTEM_WINDOW`）、`input -d` 注入、截帧、`ACTION_SET_TEXT` 输入。
+    - 限制：
+      - 输入法策略固定为“回退到主屏”（`setDisplayImePolicy` 对不受信任的屏会被拒，不再调用）：后台屏上的输入框获得焦点时，键盘会弹在用户屏幕上。输入文字本身不依赖键盘（`ACTION_SET_TEXT` / `input -d text`）。
+      - 不受信任的屏只允许 `allowEmbedded` 的 Activity 由别的 App 启动上去：App 内跳到另一个 App（付款、分享）时，新 App 会落在主屏，由“跨 App 跳转回收”挪回（`moveRootTaskToDisplay` 在个别 ROM 上可能被拒，此时留在主屏）。
+      - 没有独立的显示组 / 电源组：后台屏跟随主屏亮灭，不加专用唤醒锁；主屏熄灭时后台屏的调用返回 `agent_display_off`（与 Android 12 及以下相同），亮屏后恢复；“熄屏后重建”只在主屏亮着时做。
+      - 没有独立焦点（`OWN_FOCUS` 需要受信任的屏）；没有系统栏；禁止截屏（`FLAG_SECURE`）的页面照旧是黑的，走接管。
 - **静音**：后台屏上打开的 App 用 `appops set <pkg> PLAY_AUDIO ignore` 静音，原值记下，释放屏或 App 被挪到主屏时恢复；Shizuku 服务重启时先恢复残留。
 - **用户正在主屏用同一个 App**：启动前检查。是的话不抢，结果里告诉模型“用户正在用 X”，由模型决定是等还是问用户。
 - **实时小画面**：智能体在后台屏工作时，对话页顶部显示一块可点开的小画面（约 2 帧/秒，宽 360），点开全屏看，可以“我来接管”。

@@ -2,12 +2,14 @@ package io.github.jackwener.dsh.core.capability
 
 import android.view.Display
 import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.carryOver
+import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.degradedFromPrefs
 import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.displayOff
 import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.offMessage
 import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.recoveredNote
 import io.github.jackwener.dsh.core.capability.AgentScreen.Companion.shouldRecreate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +32,19 @@ class AgentDisplayRecoveryTest {
         assertTrue(shouldRecreate(31, Display.STATE_ON))
         assertFalse(shouldRecreate(31, Display.STATE_OFF))
         assertFalse(shouldRecreate(32, Display.STATE_DOZE))
+        // #60: an untrusted display has no group of its own even on Android 13+, so it follows the main screen.
+        assertFalse(shouldRecreate(33, Display.STATE_OFF, ownGroup = false))
+        assertTrue(shouldRecreate(34, Display.STATE_ON, ownGroup = false))
+        assertTrue(shouldRecreate(34, Display.STATE_OFF, ownGroup = true))
+        assertTrue(shouldRecreate(33, Display.STATE_OFF, ownGroup = null))
+    }
+
+    @Test fun degradedIsRememberedPerBuild() {
+        val stored = "HUAWEI/a:12/x\tuntrusted display: no ADD_TRUSTED_DISPLAY, SDK 31"
+        assertEquals("untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31", degradedFromPrefs(stored, "HUAWEI/a:12/x"))
+        assertNull(degradedFromPrefs(stored, "HUAWEI/a:12/y"))
+        assertNull(degradedFromPrefs(null, "HUAWEI/a:12/x"))
+        assertNull(degradedFromPrefs("junk", "HUAWEI/a:12/x"))
     }
 
     @Test fun carriesOverOrdinaryAppsOldestFirst() {

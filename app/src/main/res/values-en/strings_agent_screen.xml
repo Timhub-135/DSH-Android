@@ -24,4 +24,6 @@
     <string name="agent_preview_close">Close</string>
     <string name="agent_screen_doctor">Agent screen</string>
     <string name="agent_screen_create_failed">Agent screen could not be created: %1$s</string>
+    <string name="agent_screen_setting_desc_degraded">This phone only allows a compatibility-mode agent screen: the keyboard may open on your screen, and the agent screen pauses while your screen is off</string>
+    <string name="agent_screen_degraded">Compatibility mode: the system does not let Shizuku create a trusted virtual display (no ADD_TRUSTED_DISPLAY). The agent screen still works, with limits: tapping a text field may open the keyboard on your screen; an app that jumps to another app may show it on your screen before it is moved back; when your screen turns off the agent screen turns off too and waits until it is on again.</string>
 </resources>

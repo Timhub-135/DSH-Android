@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.Display
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jackwener.dsh.core.data.SettingsRepository
+import io.github.jackwener.dsh.core.platform.DisplayTiers
 import io.github.jackwener.dsh.core.platform.ShizukuShell
 import io.github.jackwener.dsh.service.DshAccessibilityService
 import kotlinx.coroutines.CoroutineScope
@@ -78,7 +79,9 @@ class AgentScreen @Inject constructor(
     private val shizuku: ShizukuShell,
     private val settings: SettingsRepository,
 ) {
-    private class Slot(@Volatile var displayId: Int) {
+    private class Slot(@Volatile var displayId: Int, @Volatile var flags: Int?) {
+        /** In its own display (power) group (Android 13+ trusted display); null when the service did not say. */
+        val ownGroup: Boolean? get() = flags?.let(DisplayTiers::ownGroup)
         @Volatile var lastUsed = SystemClock.elapsedRealtime()
         /** Waits that need the display kept (a takeover card): it is not released as idle meanwhile. */
         val holds = AtomicInteger()
@@ -112,6 +115,14 @@ class AgentScreen @Inject constructor(
     /** Why the latest attempt to create an agent screen failed ("SecurityException: …"); null once one was created. For Doctor and diagnostics. */
     @Volatile var lastCreateError: String? = null
         private set
+
+    /**
+     * Set when this device only allows the degraded, untrusted agent screen (#60: no ADD_TRUSTED_DISPLAY for shell),
+     * e.g. "untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31". Remembered for this build, so Doctor and diagnostics
+     * know before the first screen of a new process.
+     */
+    val degradedReason: String?
+        get() = degradedFromPrefs(prefs.getString(DEGRADED, null), Build.FINGERPRINT.orEmpty())
 
     private fun key(sessionId: String) = sessionId.substringBefore('/')
     private fun alive(displayId: Int) = context.getSystemService(DisplayManager::class.java).getDisplay(displayId) != null
@@ -153,7 +164,7 @@ class AgentScreen @Inject constructor(
     private suspend fun ensure(sessionId: String): Int? = mutex.withLock {
         current(sessionId)?.let { return it }
         val id = create() ?: return null
-        slots[key(sessionId)] = Slot(id)
+        slots[key(sessionId)] = Slot(id, flagsOf(id))
         publish()
         id
     }
@@ -181,6 +192,16 @@ class AgentScreen @Inject constructor(
         return id
     }
 
+    /** The flags [displayId] was created with (null: unknown, an older service), noting a degraded screen for diagnostics. */
+    private suspend fun flagsOf(displayId: Int): Int? {
+        val flags = runCatching { withContext(Dispatchers.IO) { shizuku.service().displayFlags(displayId) } }.getOrNull()?.takeIf { it > 0 } ?: return null
+        val degraded = DisplayTiers.degradedReason(flags, Build.VERSION.SDK_INT)
+        if (degraded != null) Log.w(TAG, "agent display $displayId is degraded: $degraded")
+        val stored = degraded?.let { Build.FINGERPRINT.orEmpty().replace('\t', ' ') + "\t" + it }
+        if (prefs.getString(DEGRADED, null) != stored) prefs.edit().apply { if (stored == null) remove(DEGRADED) else putString(DEGRADED, stored) }.apply()
+        return flags
+    }
+
     private fun state(displayId: Int): Int =
         context.getSystemService(DisplayManager::class.java).getDisplay(displayId)?.state ?: Display.STATE_UNKNOWN
 
@@ -201,7 +222,7 @@ class AgentScreen @Inject constructor(
                     delay(100)
                 }
             }
-            if (!shouldRecreate(Build.VERSION.SDK_INT, state(Display.DEFAULT_DISPLAY))) return@withLock ScreenTarget(s.displayId, true, off = offMessage(null, mainOff = true))
+            if (!shouldRecreate(Build.VERSION.SDK_INT, state(Display.DEFAULT_DISPLAY), s.ownGroup)) return@withLock ScreenTarget(s.displayId, true, off = offMessage(null, mainOff = true))
             recreate(s)
         }
     }
@@ -212,6 +233,7 @@ class AgentScreen @Inject constructor(
         val carried = carryOver(tasks(), old)
         val id = create() ?: return ScreenTarget(old, true, off = offMessage(lastCreateError))
         s.displayId = id
+        s.flags = flagsOf(id)
         publish()
         val stuck = carried.filterNot { move(it.taskId, id) }
         // Content left on the old display goes with it (DESTROY_CONTENT_ON_REMOVAL); relaunched below.
@@ -384,6 +406,7 @@ class AgentScreen @Inject constructor(
         const val IDLE_MS = 10 * 60_000L
         const val TICK_MS = 5_000L
         const val MUTE_PENDING = "mute_pending"
+        const val DEGRADED = "degraded"
         const val SPILL_WINDOW_MS = 3_000L
         const val SYSTEM_UI = "com.android.systemui"
 
@@ -398,10 +421,18 @@ class AgentScreen @Inject constructor(
         fun displayOff(state: Int) = state == Display.STATE_OFF || state == Display.STATE_DOZE || state == Display.STATE_DOZE_SUSPEND
 
         /**
-         * Whether a new display would be on. From Android 13 it gets its own display (power) group, which starts awake;
-         * before that it shares the main screen's, so while the user's screen is off a new one would be off as well.
+         * Whether a new display would be on. A trusted one gets its own display (power) group from Android 13, which
+         * starts awake; before that, or untrusted (#60, no OWN_DISPLAY_GROUP), it shares the main screen's, so while the
+         * user's screen is off a new one would be off as well. [ownGroup]: what the current display had (null: unknown,
+         * then assumed from [sdk]); the new one gets the same kind.
          */
-        fun shouldRecreate(sdk: Int, mainState: Int) = sdk >= 33 || !displayOff(mainState)
+        fun shouldRecreate(sdk: Int, mainState: Int, ownGroup: Boolean? = null) = (ownGroup ?: (sdk >= 33)) || !displayOff(mainState)
+
+        /** [stored] ("fingerprint\treason", see flagsOf) when it was recorded on this build [fingerprint]. */
+        fun degradedFromPrefs(stored: String?, fingerprint: String): String? {
+            val p = stored?.split('\t', limit = 2)?.takeIf { it.size == 2 } ?: return null
+            return p[1].takeIf { p[0] == fingerprint.replace('\t', ' ') && it.isNotBlank() }
+        }
 
         /** The apps to carry over from [displayId], oldest first so the most recent ends on top. */
         fun carryOver(rows: List<TaskRow>, displayId: Int): List<TaskRow> =
@@ -413,7 +444,7 @@ class AgentScreen @Inject constructor(
 
         /** The agent_display_off error for the model: what happened and what it can do without ending the task. */
         fun offMessage(reason: String?, mainOff: Boolean = false): String = "The agent screen is turned off" +
-            (if (mainOff) " because the phone's screen is off (on this Android version it follows the main screen)"
+            (if (mainOff) " because the phone's screen is off (on this device it follows the main screen)"
             else " (Android switched it off after a long idle period) and could not be recreated" + (reason?.let { ": $it" } ?: "")) +
             ". Nothing was done on it. Try the call again in a moment; if it keeps failing, tell the user (restarting DSH brings the agent screen back) " +
             "or pass screen: \"main\" to work on the user's screen."

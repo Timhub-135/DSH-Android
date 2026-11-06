@@ -24,7 +24,7 @@ import kotlin.system.exitProcess
  * task moves across displays). Hidden APIs are called through reflection and fail soft.
  */
 class ShellUserService : IShellService.Stub() {
-    private class Screen(val display: VirtualDisplay, val reader: ImageReader) {
+    private class Screen(val display: VirtualDisplay, val reader: ImageReader, val flags: Int) {
         /** The last frame read: ImageReader only hands out a frame once, and a still screen sends no new ones. */
         var last: Bitmap? = null
         /** Keeps the display's own power group on (see [keepAwake]); null when the display shares the user's group. */
@@ -32,6 +32,10 @@ class ShellUserService : IShellService.Stub() {
     }
     private val displays = HashMap<Int, Screen>()
     private val muted = MuteLedger(File("/data/local/tmp/dsh_audio_mute"))
+    /** TRUSTED refused on this device (#60): later displays go straight to the untrusted tier. */
+    private val trustedDenial by lazy {
+        TrustedDenial(File("/data/local/tmp/dsh_vd_untrusted"), TrustedDenial.Key(Build.VERSION.SDK_INT, Build.FINGERPRINT.orEmpty(), TrustedDenial.bootId()))
+    }
 
     init {
         // A previous service process died with apps still muted: give them their sound back (usually nothing to do).
@@ -76,16 +80,26 @@ class ShellUserService : IShellService.Stub() {
             val dm = shellContext.getSystemService(DisplayManager::class.java) ?: error("no DisplayManager")
             val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
             // Newest flag set first; an older or stricter build that rejects it gets the previous one.
-            for (flags in displayFlags()) {
+            val denied = trustedDenial.reason()
+            if (denied != null) failures += "trusted flag sets skipped ($denied)"
+            var skipTrusted = denied != null
+            for (flags in DisplayTiers.tiers(Build.VERSION.SDK_INT, skipTrusted)) {
+                if (skipTrusted && DisplayTiers.trusted(flags)) continue
                 val vd = try { dm.createVirtualDisplay("dsh-agent", width, height, dpi, reader.surface, flags) } catch (t: Throwable) {
                     Log.w(TAG, "createVirtualDisplay(flags=0x${flags.toString(16)}) failed", t)
-                    failures += "flags 0x${flags.toString(16)}: ${ShellIdentity.describe(t)}"; null
+                    val why = ShellIdentity.describe(t)
+                    failures += "flags 0x${flags.toString(16)}: $why"
+                    // Every other trusted set would fail the same way: go to the untrusted ones, and remember.
+                    if (DisplayTiers.trustedDenied(flags, t)) { skipTrusted = true; trustedDenial.remember(why) }
+                    null
                 } ?: continue
                 val id = vd.display.displayId
-                val screen = Screen(vd, reader)
-                if (flags and OWN_DISPLAY_GROUP != 0) screen.awake = keepAwake(id)
+                val screen = Screen(vd, reader, flags)
+                if (DisplayTiers.ownGroup(flags)) screen.awake = keepAwake(id)
                 synchronized(displays) { displays[id] = screen }
-                setImePolicy(id)
+                // An untrusted display always gets the fallback IME policy (the keyboard shows on the main screen).
+                if (DisplayTiers.trusted(flags)) setImePolicy(id)
+                if (!DisplayTiers.trusted(flags)) Log.i(TAG, "agent display $id is untrusted (flags 0x${flags.toString(16)}): ${failures.joinToString("; ")}")
                 displayError = null
                 return id
             }
@@ -99,6 +113,10 @@ class ShellUserService : IShellService.Stub() {
     }
 
     override fun lastDisplayError(): String? = displayError
+
+    override fun displayFlags(displayId: Int): Int = synchronized(displays) { displays[displayId]?.flags } ?: -1
+
+    override fun trustedDisplayDenied(): String? = trustedDenial.reason()
 
     override fun wakeDisplay(displayId: Int): Boolean {
         val s = synchronized(displays) { displays[displayId] } ?: return false
@@ -260,19 +278,6 @@ class ShellUserService : IShellService.Stub() {
 
     // ---- display setup ----------------------------------------------------------------------------
 
-    /** Most capable first: Android 14 adds its own focus (no keyboard stealing), 13 its own display group. */
-    private fun displayFlags(): List<Int> {
-        val base = PUBLIC or OWN_CONTENT_ONLY or SUPPORTS_TOUCH or ROTATES_WITH_CONTENT or DESTROY_CONTENT_ON_REMOVAL or TRUSTED
-        val t = base or OWN_DISPLAY_GROUP or ALWAYS_UNLOCKED or TOUCH_FEEDBACK_DISABLED
-        val u = t or OWN_FOCUS or STEAL_TOP_FOCUS_DISABLED
-        return listOfNotNull(
-            u.takeIf { Build.VERSION.SDK_INT >= 34 },
-            t.takeIf { Build.VERSION.SDK_INT >= 33 },
-            base,
-            PUBLIC or OWN_CONTENT_ONLY or TRUSTED,
-        )
-    }
-
     /**
      * A screen wake lock bound to [displayId] (the hidden PowerManager.newWakeLock(flags, tag, displayId), Android 13+).
      * A display with its own display group is its own power group, which Android turns off after the
@@ -303,18 +308,6 @@ class ShellUserService : IShellService.Stub() {
         const val TAG = "DshShell"
         const val MAX_TASKS = 100
         val PKG = Regex("[A-Za-z0-9_.]+")
-        // DisplayManager.VIRTUAL_DISPLAY_FLAG_* (several are hidden)
-        const val PUBLIC = 1 shl 0
-        const val OWN_CONTENT_ONLY = 1 shl 3
-        const val SUPPORTS_TOUCH = 1 shl 6
-        const val ROTATES_WITH_CONTENT = 1 shl 7
-        const val DESTROY_CONTENT_ON_REMOVAL = 1 shl 8
-        const val TRUSTED = 1 shl 10
-        const val OWN_DISPLAY_GROUP = 1 shl 11
-        const val ALWAYS_UNLOCKED = 1 shl 12
-        const val TOUCH_FEEDBACK_DISABLED = 1 shl 13
-        const val OWN_FOCUS = 1 shl 14
-        const val STEAL_TOP_FOCUS_DISABLED = 1 shl 16
     }
 }
 

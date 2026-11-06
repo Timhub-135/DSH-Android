@@ -177,6 +177,8 @@ class SettingsViewModel @Inject constructor(
     fun setAutoUpdateCheck(on: Boolean) = viewModelScope.launch { repo.setAutoUpdateCheck(on) }
     fun setEngineKeepAlive(on: Boolean) = viewModelScope.launch { engine.setKeepAlive(on) }
     fun setAgentScreen(on: Boolean) { viewModelScope.launch { repo.setAgentScreen(on) } }
+    /** Only the degraded (untrusted) agent screen works on this phone (#60); the setting says what that means. */
+    val agentScreenDegraded: Boolean get() = agentScreen.degradedReason != null
     fun restartEngine() = viewModelScope.launch { sessions.restartEngine() }
     val engineLog: String? get() = io.github.jackwener.dsh.core.engine.EngineDiagnostics.logTail(context, 4000)
     val lastEngineExit: String? get() = ReliabilityDoctor.lastExitText(context)
@@ -228,6 +230,7 @@ class SettingsViewModel @Inject constructor(
                 agentScreenUnavailable = screenWhy,
                 agentScreenSetting = st.agentScreen,
                 agentScreenError = agentScreen.lastCreateError,
+                agentScreenDegraded = agentScreen.degradedReason,
                 deepseekCredential = when { hasKey -> "api key"; account.signedIn -> "account"; else -> "none" },
                 roles = roles,
                 providers = st.providers.map { ProviderFacts(it.id, it.preset, it.enabled, it.baseUrl, it.models, it.verified) },
@@ -271,6 +274,7 @@ class SettingsViewModel @Inject constructor(
         checks += DoctorCheck("Shizuku", if (shell == io.github.jackwener.dsh.core.platform.ShellState.NotInstalled) null else shell.ready,
             listOfNotNull(shellStateLabel(context, shell), shellStateHint(context, shell)).joinToString(" · "), shellFixIntent(shizuku.access, shell, shizukuInstaller.bundled))
         agentScreen.lastCreateError?.let { checks += DoctorCheck(context.getString(R.string.agent_screen_doctor), false, context.getString(R.string.agent_screen_create_failed, it)) }
+            ?: agentScreen.degradedReason?.let { checks += DoctorCheck(context.getString(R.string.agent_screen_doctor), true, context.getString(R.string.agent_screen_degraded)) }
         val signedIn = account.signedIn
         val third = settings.value.choice.provider
         checks += DoctorCheck(if (zh) "模型凭据" else "Model credential", hasKey || signedIn || third != null, when {

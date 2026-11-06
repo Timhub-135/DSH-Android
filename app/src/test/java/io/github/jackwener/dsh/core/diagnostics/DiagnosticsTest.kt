@@ -45,6 +45,16 @@ class DiagnosticsTest {
         generatedAt = 1_793_000_000_000, timeZone = TimeZone.getTimeZone("UTC"),
     )
 
+    @Test fun agentScreenLine() {
+        assertTrue(DiagnosticsReport.build(input()).contains("agent screen: supported, setting on"))
+        val degraded = input().copy(sdk = 31, agentScreenDegraded = "untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31")
+        assertTrue(DiagnosticsReport.build(degraded).contains("agent screen: degraded (untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31), setting on"))
+        val failed = input().copy(agentScreenError = "flags 0x9: SecurityException: nope")
+        assertEquals("unsupported (creation failed, see last failure)", DiagnosticsReport.agentScreenStatus(failed))
+        assertTrue(DiagnosticsReport.build(failed).contains("agent screen last failure: flags 0x9: SecurityException: nope"))
+        assertEquals("unavailable (no Shizuku)", DiagnosticsReport.agentScreenStatus(failed.copy(agentScreenUnavailable = "no Shizuku")))
+    }
+
     @Test fun reportHasFixedSectionsAndNoSecrets() {
         val runs = listOf(
             RunOutcome(1_793_000_000_000, "failed", "llm/TRANSPORT", "llm-service-lite: provider transport failed: ECONNREFUSED 192.168.1.5:11434 (connection refused)"),

@@ -5,7 +5,7 @@ interface IShellService {
     void destroy() = 16777114;
     /** Runs `sh -c cmd`; returns "<exitCode>\n<combined output>". */
     String exec(String cmd, long timeoutMs) = 1;
-    /** Creates the agent's virtual display (flags by Android version, keyboard kept on it); returns displayId or -1 (see lastDisplayError). */
+    /** Creates the agent's virtual display (flags by Android version, keyboard kept on it; an untrusted one when TRUSTED is refused); returns displayId or -1 (see lastDisplayError). */
     int createDisplay(int width, int height, int dpi) = 2;
     void releaseDisplay(int displayId) = 3;
     /** Latest frame of the virtual display as JPEG, scaled to at most maxWidth px wide (0 = full size); null if none. */
@@ -24,6 +24,10 @@ interface IShellService {
     String lastDisplayError() = 10;
     /** Re-acquires the agent display's wake lock with ACQUIRE_CAUSES_WAKEUP (it went OFF); false when it has none or it failed. */
     boolean wakeDisplay(int displayId) = 18;
+    /** The VIRTUAL_DISPLAY_FLAG_* set a live agent display was created with (no TRUSTED: the degraded kind, #60); -1 when unknown. */
+    int displayFlags(int displayId) = 19;
+    /** Why this device refuses trusted virtual displays to shell (remembered per boot and build), or null when not known to. */
+    String trustedDisplayDenied() = 20;
 
     // ---- Android/data and Android/obb for FileTools (ShellFiles): java.io in this process, no shell strings.
     // Failures throw IllegalStateException / IllegalArgumentException with "<Exception>: <message>".

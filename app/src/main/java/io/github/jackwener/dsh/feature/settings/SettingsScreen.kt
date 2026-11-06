@@ -454,7 +454,9 @@ private fun PhoneSection(vm: SettingsViewModel, onNotificationApps: () -> Unit) 
     ShellAccessCard()
     val s by vm.settings.collectAsStateWithLifecycle()
     SettingsCard(Modifier.padding(top = 8.dp)) {
-        SettingsRow(stringResource(R.string.agent_screen_setting), stringResource(R.string.agent_screen_setting_desc), divider = false,
+        val degraded = remember { vm.agentScreenDegraded }
+        SettingsRow(stringResource(R.string.agent_screen_setting), stringResource(R.string.agent_screen_setting_desc) +
+            (if (degraded) "\n" + stringResource(R.string.agent_screen_setting_desc_degraded) else ""), divider = false,
             trailing = { DSwitch(s.agentScreen, vm::setAgentScreen) })
     }
 }
