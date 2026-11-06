@@ -807,15 +807,19 @@
     <string name="voice_err_other">Ошибка распознавания речи, нажми, чтобы повторить</string>
     <string name="prov_hint_ollama">Ollama по умолчанию принимает только подключения с самого компьютера. Задай на компьютере переменную окружения OLLAMA_HOST=0.0.0.0 и перезапусти Ollama, затем замени localhost в адресе на локальный IP компьютера; телефон и компьютер должны быть в одной сети Wi-Fi.</string>
     <string name="prov_hint_lmstudio">В настройках локального сервера LM Studio включи «Serve on Local Network» и запусти сервер, затем замени localhost в адресе на локальный IP компьютера; телефон и компьютер должны быть в одной сети Wi-Fi.</string>
-    <string name="prov_test_save">Проверить и сохранить</string>
+    <string name="prov_test">Проверить</string>
+    <string name="prov_save">Сохранить</string>
+    <string name="prov_err_no_model">Отметь хотя бы одну модель</string>
+    <string name="prov_api">Протокол API</string>
+    <string name="prov_api_hint">Запросы Chat Completions идут на адрес/chat/completions, OpenAI Responses — на адрес/responses. Указывай адрес до /v1.</string>
     <string name="prov_testing_list">Получение списка моделей…</string>
     <string name="prov_testing_model">Пробую отправить сообщение через %1$s…</string>
-    <string name="prov_test_ok_main">Проверка пройдена: %1$s нормально отвечает и вызывает инструменты, выбрана моделью по умолчанию.</string>
+    <string name="prov_test_ok_main">Проверка пройдена: %1$s нормально отвечает и вызывает инструменты. После сохранения станет моделью по умолчанию.</string>
     <string name="prov_test_ok">Проверка пройдена: %1$s нормально отвечает и вызывает инструменты.</string>
     <string name="prov_test_earlier">Первая опробованная модель %1$s не прошла: %2$s</string>
-    <string name="prov_test_none">Провайдер доступен, но ни одна из опробованных моделей не работает. Провайдер сохранён, модель по умолчанию не изменена. Можно отметить другую модель и нажать «Проверить и сохранить».</string>
-    <string name="prov_test_stopped">Не сохранено. %1$s</string>
-    <string name="prov_test_need_model">Этот провайдер не отдал список моделей. Впиши имя модели в «Ввести ID модели вручную» ниже и нажми «Проверить и сохранить».</string>
+    <string name="prov_test_none">Провайдер доступен, но ни одна из опробованных моделей не работает. Можно отметить другую модель и нажать «Проверить» или сохранить без проверки.</string>
+    <string name="prov_test_stopped">Проверка не пройдена. %1$s</string>
+    <string name="prov_test_need_model">Этот провайдер не отдал список моделей. Впиши имя модели в «Ввести ID модели вручную» ниже и нажми «Проверить».</string>
     <string name="prov_test_no_chat_model">В списке нет модели, подходящей для диалога. Введи ID модели вручную ниже и повтори.</string>
     <string name="prov_done">Готово</string>
     <string name="prov_main_untested">Модель по умолчанию %1$s не прошла проверку</string>

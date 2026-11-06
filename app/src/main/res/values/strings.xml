@@ -821,15 +821,19 @@
     <string name="voice_err_other">语音识别出错，点此重试</string>
     <string name="prov_hint_ollama">Ollama 默认只接受电脑自己的连接。请在电脑上设置环境变量 OLLAMA_HOST=0.0.0.0 并重启 Ollama，再把地址里的 localhost 换成电脑的局域网 IP，手机和电脑要连同一个 Wi-Fi。</string>
     <string name="prov_hint_lmstudio">在 LM Studio 的本地服务器设置里打开「在局域网中提供服务」(Serve on Local Network) 并启动服务，再把地址里的 localhost 换成电脑的局域网 IP，手机和电脑要连同一个 Wi-Fi。</string>
-    <string name="prov_test_save">测试并保存</string>
+    <string name="prov_test">测试</string>
+    <string name="prov_save">保存</string>
+    <string name="prov_err_no_model">请至少勾选一个模型</string>
+    <string name="prov_api">接口协议</string>
+    <string name="prov_api_hint">Chat Completions 请求发到 地址/chat/completions；OpenAI Responses 请求发到 地址/responses。地址填到 /v1 为止。</string>
     <string name="prov_testing_list">正在获取模型列表…</string>
     <string name="prov_testing_model">正在用 %1$s 试发一条消息…</string>
-    <string name="prov_test_ok_main">测试通过：%1$s 能正常对话和调用工具，已设为默认模型。</string>
+    <string name="prov_test_ok_main">测试通过：%1$s 能正常对话和调用工具，保存后设为默认模型。</string>
     <string name="prov_test_ok">测试通过：%1$s 能正常对话和调用工具。</string>
     <string name="prov_test_earlier">先试的 %1$s 没通过：%2$s</string>
-    <string name="prov_test_none">服务商能连上，但试过的模型都用不了。服务商已保存，默认模型没有改。可以勾选别的模型再点「测试并保存」。</string>
-    <string name="prov_test_stopped">没有保存。%1$s</string>
-    <string name="prov_test_need_model">这个服务商没有提供模型列表。请在下方「手动输入模型 ID」填上模型名，再点「测试并保存」。</string>
+    <string name="prov_test_none">服务商能连上，但试过的模型都用不了。可以勾选别的模型再点「测试」，也可以直接保存（模型记为未测试）。</string>
+    <string name="prov_test_stopped">测试没通过。%1$s</string>
+    <string name="prov_test_need_model">这个服务商没有提供模型列表。请在下方「手动输入模型 ID」填上模型名，再点「测试」。</string>
     <string name="prov_test_no_chat_model">列表里没有能用来对话的模型。请在下方手动输入模型 ID 后再试。</string>
     <string name="prov_done">完成</string>
     <string name="prov_main_untested">默认模型 %1$s 未测试通过</string>

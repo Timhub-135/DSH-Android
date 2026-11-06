@@ -38,7 +38,7 @@ class DiagnosticsTest {
         agentScreenUnavailable = null, agentScreenSetting = true, deepseekCredential = "api key",
         roles = listOf("main model" to "ollama / qwen3:8b (passed test)"),
         providers = listOf(
-            ProviderFacts("ollama", "ollama", true, "http://192.168.1.5:11434/v1", listOf("qwen3:8b", "gemma3"), listOf("qwen3:8b", "gone")),
+            ProviderFacts("ollama", "ollama", true, "http://192.168.1.5:11434/v1", listOf("qwen3:8b", "gemma3"), listOf("qwen3:8b", "gone"), "openai-responses"),
             ProviderFacts("kimi", "kimi", false, "https://api.moonshot.cn/v1/secret-path?token=abc", listOf("kimi-k3"), emptyList()),
         ),
         runs = runs, engineState = "ready", engineErrors = errors, lastEngineExit = null,
@@ -67,7 +67,7 @@ class DiagnosticsTest {
             .fold(-1) { at, header -> text.indexOf(header).also { assertTrue("$header in order", it > at) } }
         assertTrue(text.contains("version: 0.2.6 (16) release"))
         assertTrue(text.contains("engine: 0.2.1-rc.2-ad86b59ac98"))
-        assertTrue(text.contains("- ollama [ollama] on · openai-chat-completions · http · IP (LAN)"))
+        assertTrue(text.contains("- ollama [ollama] on · openai-responses · http · IP (LAN)"))
         assertTrue(text.contains("- kimi [kimi] off · openai-chat-completions · https · api.moonshot.cn\n"))
         assertTrue(text.contains("passed test: qwen3:8b\n"))
         assertTrue(text.contains("main model: ollama / qwen3:8b (passed test)"))

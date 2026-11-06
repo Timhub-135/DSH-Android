@@ -821,15 +821,19 @@
     <string name="voice_err_other">Speech recognition failed. Tap to retry</string>
     <string name="prov_hint_ollama">Ollama only accepts connections from the computer itself by default. On the computer, set the environment variable OLLAMA_HOST=0.0.0.0 and restart Ollama, then replace localhost in the address with the computer\'s LAN IP. The phone and computer must be on the same Wi-Fi.</string>
     <string name="prov_hint_lmstudio">In LM Studio\'s local server settings, turn on Serve on Local Network and start the server, then replace localhost in the address with the computer\'s LAN IP. The phone and computer must be on the same Wi-Fi.</string>
-    <string name="prov_test_save">Test and save</string>
+    <string name="prov_test">Test</string>
+    <string name="prov_save">Save</string>
+    <string name="prov_err_no_model">Check at least one model</string>
+    <string name="prov_api">API protocol</string>
+    <string name="prov_api_hint">Chat Completions requests go to address/chat/completions; OpenAI Responses requests go to address/responses. Enter the address up to /v1.</string>
     <string name="prov_testing_list">Fetching the model list…</string>
     <string name="prov_testing_model">Sending a test message with %1$s…</string>
-    <string name="prov_test_ok_main">Test passed: %1$s can chat and call tools. It is now the default model.</string>
+    <string name="prov_test_ok_main">Test passed: %1$s can chat and call tools. It becomes the default model when you save.</string>
     <string name="prov_test_ok">Test passed: %1$s can chat and call tools.</string>
     <string name="prov_test_earlier">%1$s, tried first, did not pass: %2$s</string>
-    <string name="prov_test_none">The provider is reachable, but none of the tested models work. The provider was saved; the default model is unchanged. Check other models and tap Test and save again.</string>
-    <string name="prov_test_stopped">Not saved. %1$s</string>
-    <string name="prov_test_need_model">This provider does not list its models. Type a model ID below, then tap Test and save.</string>
+    <string name="prov_test_none">The provider is reachable, but none of the tested models work. Check other models and tap Test again, or save anyway (the models stay untested).</string>
+    <string name="prov_test_stopped">Test failed. %1$s</string>
+    <string name="prov_test_need_model">This provider does not list its models. Type a model ID below, then tap Test.</string>
     <string name="prov_test_no_chat_model">The list has no chat models. Type a model ID below and try again.</string>
     <string name="prov_done">Done</string>
     <string name="prov_main_untested">Default model %1$s has not passed the test</string>

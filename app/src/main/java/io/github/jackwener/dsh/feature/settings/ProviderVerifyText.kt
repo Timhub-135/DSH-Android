@@ -19,7 +19,7 @@ fun describeFailure(context: Context, f: VerifyFailure): String = when (f) {
     is VerifyFailure.Server -> if (f.status in 100..599) context.getString(R.string.verify_server, f.status, f.message) else context.getString(R.string.verify_bad_response, f.message)
 }
 
-/** The 测试并保存 result: what happened, which model became the main one, and why earlier candidates failed. */
+/** The 测试 result: what happened, which model became the main one, and why earlier candidates failed. */
 fun describeOutcome(context: Context, outcome: VerifyOutcome, becameMain: Boolean): String {
     val earlier = outcome.failed.filter { outcome !is VerifyOutcome.Stopped || it.second !== outcome.failure }
     return when (outcome) {

@@ -43,7 +43,8 @@ object Redactor {
 }
 
 /** One configured third-party provider as the report shows it: no key, no URL path, only the host. */
-data class ProviderFacts(val id: String, val preset: String, val enabled: Boolean, val baseUrl: String, val models: List<String>, val verified: List<String>)
+data class ProviderFacts(val id: String, val preset: String, val enabled: Boolean, val baseUrl: String, val models: List<String>, val verified: List<String>,
+    val interfaceType: String = "openai-chat-completions")
 
 /** How one recent run ended. */
 data class RunOutcome(val time: Long, val status: String, val category: String? = null, val message: String? = null)
@@ -115,7 +116,7 @@ object DiagnosticsReport {
         if (input.providers.isEmpty()) sb.append("none\n")
         input.providers.forEach { p ->
             sb.append("- ").append(p.id).append(" [").append(p.preset).append("] ").append(yes(p.enabled, "on", "off"))
-                .append(" · openai-chat-completions · ").append(endpointLabel(p.baseUrl)).append('\n')
+                .append(" · ").append(p.interfaceType).append(" · ").append(endpointLabel(p.baseUrl)).append('\n')
             sb.append("  models: ").append(p.models.joinToString(", ").ifEmpty { "none" }).append('\n')
             sb.append("  passed test: ").append(p.verified.filter { it in p.models }.joinToString(", ").ifEmpty { "none" }).append('\n')
         }

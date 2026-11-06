@@ -34,6 +34,7 @@ import io.github.jackwener.dsh.core.provider.planHeaders
 import io.github.jackwener.dsh.core.provider.resolveHeaderRows
 import io.github.jackwener.dsh.core.provider.VerifyFailure
 import io.github.jackwener.dsh.core.provider.VerifyOutcome
+import io.github.jackwener.dsh.core.provider.API_CHAT
 import io.github.jackwener.dsh.core.provider.probeModel
 import io.github.jackwener.dsh.core.provider.verifyCandidates
 import io.github.jackwener.dsh.core.platform.ShizukuShell
@@ -121,17 +122,17 @@ class SettingsViewModel @Inject constructor(
     private fun keyFor(existing: ProviderConfig?, typed: String?): String? =
         typed?.trim()?.takeIf { it.isNotEmpty() } ?: existing?.takeIf { it.hasKey }?.let { secrets.read(it.secretName) }
 
-    /** 测试并保存: real chat requests with a tool, [candidates] in order (ModelVerify.kt). [onTesting] runs on an IO thread. */
+    /** 测试: real chat requests with a tool on protocol [api], [candidates] in order (ModelVerify.kt). [onTesting] runs on an IO thread. */
     suspend fun verifyModels(baseUrl: String, key: String?, existing: ProviderConfig?, candidates: List<String>, onTesting: (String) -> Unit,
-        headerRows: List<HeaderRow>? = null, sessionHeader: String? = existing?.sessionHeader): VerifyOutcome =
+        headerRows: List<HeaderRow>? = null, sessionHeader: String? = existing?.sessionHeader, api: String = existing?.api ?: API_CHAT): VerifyOutcome =
         withContext(Dispatchers.IO) {
             val k = keyFor(existing, key)
             // A fresh session id per probe: each test call stands alone (appRequestHeaders).
-            verifyCandidates(candidates, onTesting = onTesting) { probeModel(baseUrl, k, it, requestHeaders(existing, headerRows, sessionHeader)) }
+            verifyCandidates(candidates, onTesting = onTesting) { probeModel(baseUrl, k, it, requestHeaders(existing, headerRows, sessionHeader), api) }
         }
 
-    /** Saves a tested provider and, when [main] is set, makes that model the main model. */
-    suspend fun saveTested(p: ProviderConfig, key: String?, main: String?, headerRows: List<HeaderRow>? = null) {
+    /** Saves the editor's provider and, when [main] is set (a model that passed 测试), makes that model the main model. */
+    suspend fun saveEdited(p: ProviderConfig, key: String?, main: String?, headerRows: List<HeaderRow>? = null) {
         saveProvider(p, key, headerRows)
         if (main != null) repo.setModel(p.id, main)
     }
@@ -141,7 +142,7 @@ class SettingsViewModel @Inject constructor(
     val modelCheck = MutableStateFlow<ModelCheck?>(null)
 
     /**
-     * Tests [model] of [p] the way 测试并保存 does and records the result. [select]: the user picked
+     * Tests [model] of [p] the way the editor's 测试 does and records the result. [select]: the user picked
      * it as the main model; a verified model switches at once, an untested one only after it
      * passes (or when the provider is unreachable right now: switched, flagged as untested).
      */
@@ -149,7 +150,7 @@ class SettingsViewModel @Inject constructor(
         if (modelCheck.value?.busy == true) return@launch
         if (select && model in p.verified) { modelCheck.value = null; repo.setModel(p.id, model); return@launch }
         modelCheck.value = ModelCheck(p.id, model, busy = true)
-        val f = withContext(Dispatchers.IO) { probeModel(p.baseUrl, keyFor(p, null), model, requestHeaders(p, null, p.sessionHeader)) }
+        val f = withContext(Dispatchers.IO) { probeModel(p.baseUrl, keyFor(p, null), model, requestHeaders(p, null, p.sessionHeader), p.api) }
         repo.updateProvider(p.id) { cur -> cur.copy(verified = if (f == null) (cur.verified + model).distinct() else cur.verified - model) }
         modelCheck.value = when {
             f == null -> {
@@ -233,7 +234,7 @@ class SettingsViewModel @Inject constructor(
                 agentScreenDegraded = agentScreen.degradedReason,
                 deepseekCredential = when { hasKey -> "api key"; account.signedIn -> "account"; else -> "none" },
                 roles = roles,
-                providers = st.providers.map { ProviderFacts(it.id, it.preset, it.enabled, it.baseUrl, it.models, it.verified) },
+                providers = st.providers.map { ProviderFacts(it.id, it.preset, it.enabled, it.baseUrl, it.models, it.verified, it.interfaceType) },
                 runs = runs,
                 engineState = when (val e = engine.state.value) { is EngineState.Failed -> "failed: " + e.message; else -> e.javaClass.simpleName.lowercase() },
                 engineErrors = DiagnosticsReport.errorLines(io.github.jackwener.dsh.core.engine.EngineDiagnostics.logTail(context, 20_000)),

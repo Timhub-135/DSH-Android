@@ -21,8 +21,8 @@ import java.net.URI
 import java.net.URL
 
 /**
- * Third-party model providers (OpenAI-compatible Chat Completions endpoints), served in the engine
- * by the vendored `@snnh/dsh-llm-service-lite` row. See docs/ENGINE-CONTRACT.md §1.1.
+ * Third-party model providers (OpenAI-compatible Chat Completions or OpenAI Responses endpoints, #59),
+ * served in the engine by the vendored `@snnh/dsh-llm-service-lite` row. See docs/ENGINE-CONTRACT.md §1.1.
  *
  * Presets: base URLs follow magpie's provider table (github.com/yetone/magpie,
  * internal/provider/presets.go, MIT), restricted to each vendor's OpenAI-compatible endpoint.
@@ -48,6 +48,8 @@ data class ProviderPreset(
     val localHint: Int? = null,
     /** Header the provider wants a per-conversation id in (prefilled in the editor; see [ProviderConfig.sessionHeader]). */
     val sessionHeader: String? = null,
+    /** The editor offers the OpenAI Responses protocol ([API_RESPONSES]) besides Chat Completions (#59). */
+    val responses: Boolean = false,
 )
 
 /*
@@ -59,7 +61,7 @@ data class ProviderPreset(
  * docs.ollama.com/api/openai-compatibility, LM Studio lmstudio.ai/docs/developer/openai-compat.
  */
 val PRESETS = listOf(
-    ProviderPreset("openai", "OpenAI", "https://api.openai.com/v1", listOf("gpt-5"), keysUrl = "https://platform.openai.com/api-keys", family = listOf("gpt-", "o1", "o3", "o4", "chatgpt")),
+    ProviderPreset("openai", "OpenAI", "https://api.openai.com/v1", listOf("gpt-5"), keysUrl = "https://platform.openai.com/api-keys", family = listOf("gpt-", "o1", "o3", "o4", "chatgpt"), responses = true),
     ProviderPreset("anthropic", "Anthropic Claude", "https://api.anthropic.com/v1", listOf("claude-sonnet-5", "claude-opus-5"), keysUrl = "https://console.anthropic.com/settings/keys", family = listOf("claude")),
     ProviderPreset("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", listOf("gemini-3.5-flash"), keysUrl = "https://aistudio.google.com/apikey", family = listOf("gemini")),
     ProviderPreset("xai", "xAI Grok", "https://api.x.ai/v1", listOf("grok-4"), keysUrl = "https://console.x.ai", family = listOf("grok")),
@@ -76,17 +78,32 @@ val PRESETS = listOf(
     // Base URL as reported working in #32; the docs also list https://opencode.ai/inference/go/openai/v1.
     ProviderPreset("opencode-go", "OpenCode Go", "https://opencode.ai/zen/go/v1", keysUrl = "https://opencode.ai/docs/go/", sessionHeader = OPENCODE_SESSION_HEADER),
     // On the user's computer: the phone reaches it at the computer's LAN IP (the editor's localhost warning says so).
-    ProviderPreset("ollama", "Ollama", "http://localhost:11434/v1", keyOptional = true, editableUrl = true, localHint = R.string.prov_hint_ollama),
-    ProviderPreset("lmstudio", "LM Studio", "http://localhost:1234/v1", keyOptional = true, editableUrl = true, localHint = R.string.prov_hint_lmstudio),
-    ProviderPreset(CUSTOM, "自定义（OpenAI 兼容）", "", keyOptional = true, editableUrl = true),
+    ProviderPreset("ollama", "Ollama", "http://localhost:11434/v1", keyOptional = true, editableUrl = true, localHint = R.string.prov_hint_ollama, responses = true),
+    ProviderPreset("lmstudio", "LM Studio", "http://localhost:1234/v1", keyOptional = true, editableUrl = true, localHint = R.string.prov_hint_lmstudio, responses = true),
+    ProviderPreset(CUSTOM, "自定义（OpenAI 兼容）", "", keyOptional = true, editableUrl = true, responses = true),
 )
 
 const val CUSTOM = "custom"
 const val OPENCODE_SESSION_HEADER = "x-opencode-session"
 
+/** Wire protocols a provider may speak: the engine's `interfaceType` spellings (llm-service-lite INTERFACE_TYPES). */
+const val API_CHAT = "openai-chat-completions"
+/** OpenAI Responses API (#59): `POST {base}/responses`. */
+const val API_RESPONSES = "openai-responses"
+
+/**
+ * The base URL as stored: trimmed, no trailing `/`, and without a pasted endpoint path
+ * (`…/v1/chat/completions`, `…/v1/responses`): the engine appends the endpoint itself.
+ */
+fun normalizeBaseUrl(url: String): String {
+    var b = url.trim().trimEnd('/')
+    listOf("/chat/completions", "/responses").forEach { if (b.endsWith(it, ignoreCase = true)) b = b.dropLast(it.length).trimEnd('/') }
+    return b
+}
+
 fun presetOf(id: String?): ProviderPreset? = PRESETS.firstOrNull { it.id == id }
 
-/** One configured provider = one engine route (`id`), all its models on Chat Completions. */
+/** One configured provider = one engine route (`id`), all its models on one protocol ([api]). */
 @Serializable
 data class ProviderConfig(
     /** Route id: the preset id, `-2`, `-3`… for repeats. Never a DeepSeek route name. */
@@ -113,7 +130,11 @@ data class ProviderConfig(
      * one-way hash of the session id, the same for every request of a conversation (js patch 18).
      */
     val sessionHeader: String? = null,
+    /** Wire protocol: [API_CHAT] (default) or [API_RESPONSES] (#59); anything else reads as [API_CHAT]. */
+    val api: String = API_CHAT,
 ) {
+    /** The engine's `interfaceType` for this route. */
+    val interfaceType: String get() = if (api == API_RESPONSES) API_RESPONSES else API_CHAT
     /** `apiKeyEnv` the engine resolves per request; set in the `:engine` environment only. */
     val keyEnv: String get() = keyEnvOf(id)
     val secretName: String get() = "provider-$id"
@@ -358,7 +379,7 @@ fun renderProfilePatch(providers: List<ProviderConfig>, webSearch: Boolean, user
                 active.forEach { p ->
                     putJsonObject(p.id) {
                         put("displayName", p.name)
-                        put("interfaceType", "openai-chat-completions")
+                        put("interfaceType", p.interfaceType)
                         put("baseURL", p.baseUrl.trim().trimEnd('/'))
                         if (p.hasKey) put("apiKeyEnv", p.keyEnv)
                         // js patch 18: static headers here, secret ones by env name only, the session header, the UA token.
@@ -368,7 +389,8 @@ fun renderProfilePatch(providers: List<ProviderConfig>, webSearch: Boolean, user
                         if (secret.isNotEmpty()) putJsonObject("headerEnv") { secret.forEach { put(it.name, p.headerEnv(it.name)) } }
                         p.sessionHeader?.trim()?.takeIf { isUsableHeaderName(it) }?.let { put("sessionHeader", it) }
                         if (userAgent != null) put("userAgent", userAgent)
-                        put("includeUsage", true)
+                        // Chat Completions reports usage only when asked (stream_options); Responses always does, and the engine refuses the flag there.
+                        if (p.interfaceType == API_CHAT) put("includeUsage", true)
                         putJsonArray("models") {
                             p.models.forEach { m ->
                                 val l = p.limitsOf(m)

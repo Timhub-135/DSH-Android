@@ -103,13 +103,19 @@ list into `[]`):
 The composer offers exactly the levels the engine reports (`android/models/reasoning`, §2) plus 默认.
 Route ids are the preset id (`kimi`, then `kimi-2`, …), never `deepseek-*`.
 
+Protocol (#59): `interfaceType` is the provider's `api`, `openai-chat-completions` (default) or `openai-responses`
+(OpenAI Responses API, `POST {baseURL}/responses`; offered for the OpenAI, Ollama, LM Studio and custom presets).
+`includeUsage: true` is written for Chat Completions only (Responses reports usage itself and the adapter refuses the
+flag there). On Responses the adapter sends a level as `reasoning: {effort, summary: "auto"}`; it has no thinking switch,
+so the editor offers 自动 / 无 / 推理档位 only.
+
 Provider headers (js patch 18; 设置 → 模型服务 → 高级设置, the OpenCode Go preset): `"headers":{name:value}` for
 plain extra headers, `"headerEnv":{name:"DSH_ANDROID_HDR_…"}` for secret ones (a name containing key / token /
 secret / auth…, or a value starting `sk-` / `Bearer`; the value lives in SecretStore and reaches the engine only as
 env), `"sessionHeader":"x-opencode-session"` when the provider wants a per-conversation id (the engine sends the
 first 32 hex of sha256(tag, route, session id): stable for the conversation, new per conversation, a fresh random id
 for requests outside a session), and `"userAgent":"DSH-Android/<version>"` on every route (engine User-Agent
-`DSH-Android/<version> deepseek-harness/<v> (+url)`). Keys are omitted when empty. 获取模型列表 and 测试并保存 send the same
+`DSH-Android/<version> deepseek-harness/<v> (+url)`). Keys are omitted when empty. 获取模型列表 and 测试 send the same
 extra headers, the same User-Agent and a fresh session id.
 
 Errors: a third-party turn that fails because the account may not use the model (403 `Model.AccessDenied`, 您无权访问,
