@@ -48,6 +48,9 @@ object Fmt {
         else -> n.toString()
     }
 
+    /** 0.853 -> "85%". */
+    fun percent(ratio: Double): String = "${kotlin.math.round(ratio * 100).toInt()}%"
+
     /** Message timestamp: HH:mm today, otherwise M月d日 / MMM d. */
     fun stamp(context: Context, at: Long): String {
         val cal = Calendar.getInstance().apply { timeInMillis = at }

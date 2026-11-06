@@ -68,11 +68,15 @@ import io.github.jackwener.dsh.R
 import io.github.jackwener.dsh.core.data.Effort
 import io.github.jackwener.dsh.core.provider.DEEPSEEK_MODELS
 import io.github.jackwener.dsh.core.provider.ModelChoice
+import io.github.jackwener.dsh.core.provider.ModelSearch
+import io.github.jackwener.dsh.core.session.TodoDockMode
+import io.github.jackwener.dsh.core.session.todoDockMode
 import io.github.jackwener.dsh.core.provider.ModelReasoning
 import io.github.jackwener.dsh.core.provider.ProviderConfig
 import io.github.jackwener.dsh.core.provider.ReasoningLevels
 import io.github.jackwener.dsh.core.designsystem.Chevron
 import io.github.jackwener.dsh.core.designsystem.DIcon
+import io.github.jackwener.dsh.core.designsystem.DInput
 import io.github.jackwener.dsh.core.designsystem.DMenu
 import io.github.jackwener.dsh.core.designsystem.Dsh
 import io.github.jackwener.dsh.core.designsystem.DshType
@@ -232,6 +236,8 @@ fun Composer(
     var slashOpen by remember { mutableStateOf(false) }
     var presetOpen by remember { mutableStateOf(false) }
     var modelOpen by remember { mutableStateOf(false) }
+    var modelQuery by remember { mutableStateOf("") }
+    androidx.compose.runtime.LaunchedEffect(modelOpen) { if (!modelOpen) modelQuery = "" }
     var modeOpen by remember { mutableStateOf(false) }
     var confirmFull by remember { mutableStateOf(false) }
     val settled = rememberSettled()
@@ -370,13 +376,22 @@ fun Composer(
                     Chevron(Modifier.padding(start = 2.dp), size = 12.dp)
                 }
                 DMenu(modelOpen, { modelOpen = false }) {
-                    MenuSectionTitle("DeepSeek")
-                    Models.forEach { (id, label) -> MenuItem(label, { modelOpen = false; onModel("", id) }, R.drawable.dsw_data_outline, selected = model.isDeepSeek && id == model.model) }
-                    providers.filter { it.enabled && it.models.isNotEmpty() }.forEach { p ->
-                        MenuDivider()
+                    val listed = providers.filter { it.enabled && it.models.isNotEmpty() }
+                    // A long list (many third-party models) gets a search field: model id, display name or provider.
+                    val searchable = ModelSearch.shown(Models.size + listed.sumOf { it.models.size })
+                    if (searchable) DInput(modelQuery, { modelQuery = it }, Modifier.padding(horizontal = 8.dp, vertical = 4.dp).width(232.dp),
+                        placeholder = stringResource(R.string.search_models), minHeight = 34.dp)
+                    val q = if (searchable) modelQuery else ""
+                    val deepseek = Models.filter { (id, label) -> ModelSearch.matches(q, id, label, "DeepSeek") }
+                    val shown = listed.map { p -> p to p.models.filter { m -> ModelSearch.matches(q, m, p.name) } }.filter { it.second.isNotEmpty() }
+                    if (deepseek.isNotEmpty()) MenuSectionTitle("DeepSeek")
+                    deepseek.forEach { (id, label) -> MenuItem(label, { modelOpen = false; onModel("", id) }, R.drawable.dsw_data_outline, selected = model.isDeepSeek && id == model.model) }
+                    shown.forEachIndexed { i, (p, models) ->
+                        if (deepseek.isNotEmpty() || i > 0) MenuDivider()
                         MenuSectionTitle(p.name)
-                        p.models.forEach { m -> MenuItem(m, { modelOpen = false; onModel(p.id, m) }, R.drawable.dsw_data_outline, selected = model.provider?.id == p.id && model.model == m) }
+                        models.forEach { m -> MenuItem(m, { modelOpen = false; onModel(p.id, m) }, R.drawable.dsw_data_outline, selected = model.provider?.id == p.id && model.model == m) }
                     }
+                    if (deepseek.isEmpty() && shown.isEmpty()) MenuItem(stringResource(R.string.search_models_none), {}, enabled = false)
                     if (model.isDeepSeek) {
                         MenuDivider()
                         MenuSectionTitle(stringResource(R.string.effort))
@@ -520,11 +535,26 @@ fun QueueDock(queue: List<QueuedMessage>, onEdit: (QueuedMessage) -> Unit, onDel
     }
 }
 
-/** Todo dock (dsh TodoPanel): collapsed header with progress, expands to the checklist. */
+/**
+ * Todo dock (dsh TodoPanel): collapsed header with progress, expands to the checklist. A finished
+ * list is one 全部完成 line, and gone once a later turn runs ([todoDockMode]).
+ */
 @Composable
-fun TodoDock(todos: List<TodoItem>) {
-    if (todos.isEmpty()) return
+fun TodoDock(todos: List<TodoItem>?, writtenThisTurn: Boolean) {
+    val mode = todoDockMode(todos, writtenThisTurn)
+    if (todos == null || mode == TodoDockMode.Hidden) return
     val c = Dsh.colors
+    if (mode == TodoDockMode.AllDone) {
+        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(Radius.lg).background(c.menuFill).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            DIcon(R.drawable.dsw_checklist_outline, size = 14.dp, tint = c.labelSecondary)
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.todos), style = DshType.xs13m, color = c.labelPrimary)
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.todos_all_done) + " · ${todos.size}/${todos.size}", Modifier.weight(1f), style = DshType.xxs12, color = c.labelTertiary, maxLines = 1)
+        }
+        return
+    }
     var open by remember { mutableStateOf(false) }
     val done = todos.count { it.status == "completed" }
     val active = todos.count { it.status == "in_progress" }

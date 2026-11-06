@@ -212,12 +212,13 @@ private fun TurnHeaderRow(turn: TrajTurn, collapsed: Boolean, onToggle: () -> Un
     }
 }
 
-/** 用时 · 调用次数 · Token · 首次反馈 for one turn; parts the log has no data for are left out. */
+/** 用时 · 调用次数 · Token · 缓存命中 · 首次反馈 for one turn; parts the log has no data for are left out. */
 private fun turnSummary(context: android.content.Context, turn: TrajTurn): String {
     return listOfNotNull(
         turn.end?.let { context.getString(R.string.traj_turn_took, Fmt.duration(context, it - turn.start)) },
         context.getString(R.string.traj_turn_calls, turn.toolCalls),
         turn.usage.takeIf { !it.isEmpty }?.let { "${Fmt.tokens(it.total)} tok" },
+        turn.usage.cacheHitRate?.let { context.getString(R.string.usage_cache_hit_short, Fmt.percent(it)) },
         turn.firstOutputMs?.let { context.getString(R.string.traj_turn_first, Fmt.shortDuration(it)) },
     ).joinToString(" · ")
 }

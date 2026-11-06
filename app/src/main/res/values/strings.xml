@@ -35,6 +35,8 @@
     <string name="collapse_sidebar">收起侧边栏</string>
     <string name="open_sidebar">打开侧边栏</string>
     <string name="search_sessions">搜索会话名称</string>
+    <string name="search_models">搜索模型或服务商</string>
+    <string name="search_models_none">没有匹配的模型</string>
     <string name="no_sessions">暂无会话</string>
     <string name="no_matching_sessions">无匹配会话</string>
     <string name="filter_sessions">筛选会话</string>
@@ -111,6 +113,7 @@
     <string name="queue_steer">插话发送</string>
     <string name="steer_pending">等待插入当前任务</string>
     <string name="todos">任务</string>
+    <string name="todos_all_done">全部完成</string>
     <string name="todo_progress">%1$d 已完成 · %2$d 进行中 · %3$d 待处理</string>
     <string name="view_chat">对话</string>
     <string name="view_trajectory">轨迹</string>
@@ -171,6 +174,7 @@
     <string name="notif_attention">%1$s：%2$s</string>
     <string name="notif_sessions_summary">%1$d 个会话有新消息</string>
     <string name="deep_diving">深度求索中，用时 %1$s ···</string>
+    <string name="deep_diving_activity">%1$s，用时 %2$s ···</string>
     <string name="starting_engine">正在启动智能体引擎…</string>
     <string name="waiting_unlock">等待你解锁手机后继续…</string>
     <string name="waiting_network">等待网络恢复后继续…</string>
@@ -396,6 +400,8 @@
     <string name="timing_not_recorded">未记录</string>
     <string name="usage_input">输入</string>
     <string name="usage_cached">缓存读取</string>
+    <string name="usage_cache_hit">缓存命中率</string>
+    <string name="usage_cache_hit_short">缓存 %1$s</string>
     <string name="usage_output">输出</string>
     <string name="usage_reasoning">推理</string>
     <string name="usage_tokens">Token</string>

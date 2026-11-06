@@ -46,6 +46,8 @@ data class Usage(val uncached: Long = 0, val output: Long = 0, val cacheRead: Lo
     val total get() = input + output
     operator fun plus(o: Usage) = Usage(uncached + o.uncached, output + o.output, cacheRead + o.cacheRead, reasoning + o.reasoning, cacheWrite + o.cacheWrite)
     val isEmpty get() = input == 0L && output == 0L
+    /** Share of the prompt read from the provider's cache; null when the provider reported no cache data. */
+    val cacheHitRate: Double? get() = cacheHitRate(cacheRead, input, cacheWrite)
 
     companion object {
         fun of(u: JsonObject?): Usage? {
@@ -55,6 +57,13 @@ data class Usage(val uncached: Long = 0, val output: Long = 0, val cacheRead: Lo
         }
     }
 }
+
+/**
+ * Cache hit rate = [cacheRead] / [input] (the whole prompt, cached part included). Null when there
+ * is no cache data: nothing read from or written to the cache (a provider that does not report it).
+ */
+fun cacheHitRate(cacheRead: Long, input: Long, cacheWrite: Long = 0): Double? =
+    if (input <= 0 || (cacheRead <= 0 && cacheWrite <= 0)) null else (cacheRead.toDouble() / input).coerceIn(0.0, 1.0)
 
 /**
  * Data key under which SessionStore keeps a non-`append` dsh `surfaceOp` (e.g. the tool-result
@@ -105,6 +114,20 @@ data class TodoCounts(val pending: Int, val inProgress: Int, val completed: Int)
         fun of(o: JsonObject?): TodoCounts? = o?.let { TodoCounts(it.i("pending") ?: 0, it.i("inProgress") ?: 0, it.i("completed") ?: 0) }
         fun of(items: List<TodoItem>): TodoCounts = TodoCounts(items.count { it.status == "pending" }, items.count { it.status == "in_progress" }, items.count { it.status == "completed" })
     }
+}
+
+/** What the todo dock above the composer shows while a turn runs. */
+enum class TodoDockMode { Hidden, AllDone, Open }
+
+/**
+ * [todos]: the session's latest todo list; [writtenThisTurn]: the running turn wrote it. A finished
+ * list collapses to one 全部完成 line in the turn that finished it and is gone from later turns.
+ */
+fun todoDockMode(todos: List<TodoItem>?, writtenThisTurn: Boolean): TodoDockMode = when {
+    todos.isNullOrEmpty() -> TodoDockMode.Hidden
+    todos.any { it.status != "completed" } -> TodoDockMode.Open
+    writtenThisTurn -> TodoDockMode.AllDone
+    else -> TodoDockMode.Hidden
 }
 
 /** plugin-guard's turn outcome: [reason] done | needs_user | pending_work | continue_limit | budget; [budgetKind] for budget. */

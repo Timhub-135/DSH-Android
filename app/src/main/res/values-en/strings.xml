@@ -35,6 +35,8 @@
     <string name="collapse_sidebar">Collapse sidebar</string>
     <string name="open_sidebar">Open sidebar</string>
     <string name="search_sessions">Search session names</string>
+    <string name="search_models">Search models or providers</string>
+    <string name="search_models_none">No matching models</string>
     <string name="no_sessions">No sessions yet</string>
     <string name="no_matching_sessions">No matching sessions</string>
     <string name="filter_sessions">Filter sessions</string>
@@ -111,6 +113,7 @@
     <string name="queue_steer">Steer</string>
     <string name="steer_pending">Pending: the agent sees it at its next step</string>
     <string name="todos">To-dos</string>
+    <string name="todos_all_done">All done</string>
     <string name="todo_progress">%1$d done · %2$d in progress · %3$d pending</string>
     <string name="view_chat">Chat</string>
     <string name="view_trajectory">Trajectory</string>
@@ -171,6 +174,7 @@
     <string name="notif_attention">%1$s: %2$s</string>
     <string name="notif_sessions_summary">%1$d conversations have updates</string>
     <string name="deep_diving">Deep diving for %1$s ···</string>
+    <string name="deep_diving_activity">%1$s · %2$s ···</string>
     <string name="starting_engine">Starting the agent engine…</string>
     <string name="waiting_unlock">Waiting for you to unlock the phone…</string>
     <string name="waiting_network">Waiting for the network to come back…</string>
@@ -396,6 +400,8 @@
     <string name="timing_not_recorded">Not recorded</string>
     <string name="usage_input">Input</string>
     <string name="usage_cached">Cache read</string>
+    <string name="usage_cache_hit">Cache hit rate</string>
+    <string name="usage_cache_hit_short">cache %1$s</string>
     <string name="usage_output">Output</string>
     <string name="usage_reasoning">Reasoning</string>
     <string name="usage_tokens">Tokens</string>

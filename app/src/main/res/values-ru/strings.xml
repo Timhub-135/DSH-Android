@@ -35,6 +35,8 @@
     <string name="collapse_sidebar">Свернуть боковую панель</string>
     <string name="open_sidebar">Открыть боковую панель</string>
     <string name="search_sessions">Поиск по названию сессии</string>
+    <string name="search_models">Поиск модели или провайдера</string>
+    <string name="search_models_none">Нет подходящих моделей</string>
     <string name="no_sessions">Сессий пока нет</string>
     <string name="no_matching_sessions">Нет подходящих сессий</string>
     <string name="filter_sessions">Фильтр сессий</string>
@@ -108,6 +110,7 @@
     <string name="queue_steer">Вклиниться</string>
     <string name="steer_pending">Ждёт вклинивания в текущую задачу</string>
     <string name="todos">Задачи</string>
+    <string name="todos_all_done">Всё выполнено</string>
     <string name="todo_progress">%1$d готово · %2$d в работе · %3$d в ожидании</string>
     <string name="view_chat">Чат</string>
     <string name="view_trajectory">Хронология</string>
@@ -168,6 +171,7 @@
     <string name="notif_attention">%1$s: %2$s</string>
     <string name="notif_sessions_summary">Новые сообщения в сессиях: %1$d</string>
     <string name="deep_diving">Глубокое размышление, %1$s ···</string>
+    <string name="deep_diving_activity">%1$s, %2$s ···</string>
     <string name="starting_engine">Запуск движка агента…</string>
     <string name="waiting_unlock">Жду, когда разблокируешь телефон…</string>
     <string name="waiting_network">Жду восстановления сети…</string>
@@ -393,6 +397,8 @@
     <string name="timing_not_recorded">Не записано</string>
     <string name="usage_input">Ввод</string>
     <string name="usage_cached">Из кеша</string>
+    <string name="usage_cache_hit">Попадания в кеш</string>
+    <string name="usage_cache_hit_short">кеш %1$s</string>
     <string name="usage_output">Вывод</string>
     <string name="usage_reasoning">Рассуждения</string>
     <string name="usage_tokens">Token</string>

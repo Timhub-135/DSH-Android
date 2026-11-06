@@ -127,6 +127,7 @@ private fun TimingTab(r: TrajRecord) {
             r.usage?.let { u ->
                 KeyValue(stringResource(R.string.usage_input), u.input.toString(), mono = true)
                 KeyValue(stringResource(R.string.usage_cached), u.cacheRead.toString(), mono = true)
+                u.cacheHitRate?.let { KeyValue(stringResource(R.string.usage_cache_hit), Fmt.percent(it), mono = true) }
                 KeyValue(stringResource(R.string.usage_output), u.output.toString(), mono = true)
                 if (u.reasoning > 0) KeyValue(stringResource(R.string.usage_reasoning), u.reasoning.toString(), mono = true)
                 r.duration?.takeIf { it > 0 && u.output > 0 }?.let { d -> KeyValue(stringResource(R.string.timing_throughput), String.format(java.util.Locale.US, "%.1f tok/s", u.output * 1000.0 / d)) }

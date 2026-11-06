@@ -72,6 +72,7 @@ import io.github.jackwener.dsh.core.session.Conversation
 import io.github.jackwener.dsh.core.session.EndReason
 import io.github.jackwener.dsh.core.session.SessionLive
 import io.github.jackwener.dsh.core.session.SteerMessage
+import io.github.jackwener.dsh.core.session.ToolState
 import io.github.jackwener.dsh.core.session.Turn
 import io.github.jackwener.dsh.core.provider.NetDiagnose
 import io.github.jackwener.dsh.core.session.TurnError
@@ -264,7 +265,8 @@ private fun TailActions(turn: Turn) {
         IconBtn(R.drawable.dsw_copy_outline, { copyText(context, turn.reply?.text ?: "") }, iconSize = 17.dp, tint = c.labelTertiary, contentDescription = stringResource(R.string.copy_reply))
         if (!turn.usage.isEmpty) {
             Spacer(Modifier.width(4.dp))
-            Text("↑${Fmt.tokens(turn.usage.input)} ↓${Fmt.tokens(turn.usage.output)}", Modifier.clip(Radius.sm).background(c.selector).padding(horizontal = 8.dp, vertical = 1.dp),
+            val hit = turn.usage.cacheHitRate?.let { " · " + stringResource(R.string.usage_cache_hit_short, Fmt.percent(it)) }.orEmpty()
+            Text("↑${Fmt.tokens(turn.usage.input)} ↓${Fmt.tokens(turn.usage.output)}$hit", Modifier.clip(Radius.sm).background(c.selector).padding(horizontal = 8.dp, vertical = 1.dp),
                 style = DshType.xxs12, color = c.labelTertiary)
         }
         Spacer(Modifier.width(8.dp))
@@ -377,7 +379,7 @@ private fun EndCard(turn: Turn, end: EndReason, canContinue: Boolean, onContinue
     }
 }
 
-/** dsh RunningStatus: whale + "深度求索中，用时 …" in deep-diving blue with shimmer, ticking each second. */
+/** dsh RunningStatus: whale + "深度求索中，用时 …" (or the running tool's activity, "正在读取屏幕，用时 …") in deep-diving blue with shimmer, ticking each second. */
 @Composable
 fun RunningIndicator(live: SessionLive, lastTurn: Turn?) {
     val c = Dsh.colors
@@ -392,7 +394,12 @@ fun RunningIndicator(live: SessionLive, lastTurn: Turn?) {
         live.takeover != null -> stringResource(R.string.takeover_title)
         live.approval != null || live.permission != null -> stringResource(R.string.waiting_approval_inline)
         live.question != null -> stringResource(R.string.waiting_answer_inline)
-        else -> stringResource(R.string.deep_diving, Fmt.duration(context, now - start))
+        else -> {
+            // A tool is running: name what it does (正在读取屏幕); otherwise the model is thinking / writing.
+            val tool = lastTurn?.takeIf { it.status == TurnStatus.Running }?.blocks?.lastOrNull { it is Block.Tool && it.state == ToolState.Running } as Block.Tool?
+            if (tool != null) stringResource(R.string.deep_diving_activity, stringResource(ToolPresentation.info(tool.name).activity.live), Fmt.duration(context, now - start))
+            else stringResource(R.string.deep_diving, Fmt.duration(context, now - start))
+        }
     }
     Column(Modifier.padding(top = 4.dp)) {
         if (lastTurn?.blocks?.isNotEmpty() == true) HDivider(Modifier.padding(bottom = 4.dp))

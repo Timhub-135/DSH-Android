@@ -177,7 +177,7 @@ private fun EmptyHero(vm: HomeViewModel, composer: ComposerState, settings: Sett
 @Composable
 private fun BottomDock(vm: HomeViewModel, composer: ComposerState, settings: Settings, live: SessionLive, conv: Conversation, onAutomation: () -> Unit, onSettings: (String?) -> Unit) {
     Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        conv.todos?.let { if (live.running) TodoDock(it) }
+        if (live.running) TodoDock(conv.todos, writtenThisTurn = conv.turns.lastOrNull()?.let { it.status == io.github.jackwener.dsh.core.session.TurnStatus.Running && it.todos != null } == true)
         QueueDock(live.queue, onEdit = { q -> vm.removeQueued(q.id); composer.text = q.text }, onDelete = { vm.removeQueued(it.id) }, onSendNow = { vm.sendQueuedNow(it.id) })
         Box(Modifier.padding(horizontal = 8.dp)) { ComposerSlot(vm, composer, settings, live, conv, hero = false, onAutomation = onAutomation, onManageModes = { onSettings("Modes") }) }
     }
