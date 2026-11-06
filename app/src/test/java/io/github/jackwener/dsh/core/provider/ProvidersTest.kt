@@ -46,6 +46,26 @@ class ProvidersTest {
         assertTrue(Regex("^[A-Z_][A-Z0-9_]*$").matches(keyEnvOf("custom-12")))
     }
 
+    @Test fun responsesRouteSpeaksItsProtocol() {
+        // #59: interfaceType from the provider's api; includeUsage only on Chat Completions (the engine refuses it elsewhere).
+        val yml = renderProfilePatch(listOf(kimi, custom.copy(api = API_RESPONSES)), webSearch = true)
+        assertTrue(yml.contains("\"custom\":{\"displayName\":\"My gateway\",\"interfaceType\":\"openai-responses\",\"baseURL\":\"https://gw.example/v1\""))
+        assertEquals(1, Regex("\"includeUsage\":true").findAll(yml).count())
+        assertTrue(yml.contains("\"interfaceType\":\"openai-chat-completions\""))
+        // An unknown value (a newer app's) reads as Chat Completions.
+        assertEquals(API_CHAT, custom.copy(api = "something-else").interfaceType)
+        // Settings saved before #59 have no api field.
+        assertEquals(API_CHAT, kotlinx.serialization.json.Json.decodeFromString(ProviderConfig.serializer(),
+            """{"id":"k","preset":"kimi","name":"K","baseUrl":"https://h/v1","models":["m"]}""").api)
+    }
+
+    @Test fun pastedEndpointPathsAreDropped() {
+        assertEquals("https://api.openai.com/v1", normalizeBaseUrl(" https://api.openai.com/v1/responses/ "))
+        assertEquals("https://gw.example/v1", normalizeBaseUrl("https://gw.example/v1/chat/completions"))
+        assertEquals("https://gw.example/v1", normalizeBaseUrl("https://gw.example/v1/"))
+        assertEquals("https://gw.example/api/v3", normalizeBaseUrl("https://gw.example/api/v3"))
+    }
+
     @Test fun patchCarriesRoutesWithoutSecrets() {
         val yml = renderProfilePatch(listOf(kimi, custom), webSearch = true)
         assertTrue(yml.contains("- id: llm-service-lite"))

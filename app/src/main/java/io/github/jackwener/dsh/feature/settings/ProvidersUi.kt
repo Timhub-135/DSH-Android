@@ -62,7 +62,12 @@ import io.github.jackwener.dsh.core.provider.isUsableHeaderValue
 import io.github.jackwener.dsh.core.provider.VerifyErrors
 import io.github.jackwener.dsh.core.provider.VerifyFailure
 import io.github.jackwener.dsh.core.provider.VerifyOutcome
-import io.github.jackwener.dsh.core.provider.planSave
+import io.github.jackwener.dsh.core.provider.API_CHAT
+import io.github.jackwener.dsh.core.provider.API_RESPONSES
+import io.github.jackwener.dsh.core.provider.endpointKey
+import io.github.jackwener.dsh.core.provider.normalizeBaseUrl
+import io.github.jackwener.dsh.core.provider.planTest
+import io.github.jackwener.dsh.core.provider.verifiedOnSave
 import io.github.jackwener.dsh.core.provider.rankCandidates
 import io.github.jackwener.dsh.core.provider.LimitSource
 import io.github.jackwener.dsh.core.provider.ModelLimits
@@ -256,12 +261,17 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
     var fetchOk by remember { mutableStateOf(false) }
     var fetchNet by remember { mutableStateOf<NetDiagnosis?>(null) }
     var error by remember { mutableStateOf<Int?>(null) }
-    // 测试并保存: progress line while testing, then the result (ok = a model passed).
+    // 测试: progress line while testing, then the result (ok = a model passed).
     var testing by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    // A provider added here and saved by an earlier attempt (all models failed): later attempts update it.
-    var savedId by rememberSaveable { mutableStateOf<String?>(null) }
-    val current = existing ?: s.providers.firstOrNull { it.id == savedId }
+    // Wire protocol (#59): Chat Completions or OpenAI Responses.
+    var api by rememberSaveable { mutableStateOf(existing?.api ?: API_CHAT) }
+    // Models that passed the connection test (as saved, then per 测试) and the endpoint that holds for (endpointKey).
+    val verified = remember { mutableStateListOf<String>().apply { addAll(existing?.verified.orEmpty()) } }
+    var verifiedFor by remember { mutableStateOf(existing?.let { endpointKey(it.api, it.baseUrl, "") }) }
+    // A model that passed 测试 and becomes the main model on 保存 (a new provider, or the current main route).
+    var pendingMain by remember { mutableStateOf<String?>(null) }
+    val current = existing
     val needsKey = !preset.keyOptional && current?.hasKey != true
     // 高级设置: extra request headers and the per-conversation session header (js patch 18).
     val headerRows = remember { mutableStateListOf<HeaderRow>().apply { addAll(headerRowsOf(existing)) } }
@@ -286,13 +296,13 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
     }
 
     /**
-     * 测试并保存: list the models, then one real chat request with a tool per candidate (ModelVerify.kt).
-     * Key / network trouble saves nothing; a reachable provider whose tested models all fail is saved
-     * without touching the main model; a passing model is recorded as verified (and becomes the
-     * main model for a new provider or the current main route).
+     * 测试: list the models, then one real chat request with a tool per candidate (ModelVerify.kt).
+     * Nothing is stored (#59: 保存 is its own action): a passing model is ticked and counts as
+     * verified when the provider is saved with the same protocol, address and key.
      */
-    suspend fun testAndSave() {
+    suspend fun runTest() {
         result = null
+        baseUrl = normalizeBaseUrl(baseUrl)
         testing = context.getString(R.string.prov_testing_list)
         val listing = vm.fetchModels(baseUrl, key, current, headerRows.toList(), sessionHeaderOrNull())
         listing.onSuccess(::applyListing)
@@ -312,23 +322,44 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
         if (candidates.isEmpty()) {
             testing = null; result = false to context.getString(if (listed == null) R.string.prov_test_need_model else R.string.prov_test_no_chat_model); return
         }
-        val base = baseUrl.trim().trimEnd('/')
-        val outcome = vm.verifyModels(base, key, current, candidates, { m -> testing = context.getString(R.string.prov_testing_model, m) }, headerRows.toList(), sessionHeaderOrNull())
+        val base = baseUrl
+        val endpoint = endpointKey(api, base, key)
+        val outcome = vm.verifyModels(base, key, current, candidates, { m -> testing = context.getString(R.string.prov_testing_model, m) }, headerRows.toList(), sessionHeaderOrNull(), api)
         testing = null
-        val plan = planSave(outcome, checked, current?.verified.orEmpty(), makeMain = existing == null || s.choice.provider?.id == current?.id)
-        if (plan.save) {
+        val plan = planTest(outcome, checked, verified.toList().takeIf { verifiedFor == endpoint }.orEmpty(),
+            makeMain = existing == null || s.choice.provider?.id == current?.id)
+        if (plan.apply) {
             plan.models.forEach { if (it !in offered) offered.add(it); if (it !in selected) selected.add(it) }
-            val id = current?.id ?: newRouteId(preset.id, s.providers.map { it.id })
-            // Keep the user's order of discovery, checked ones only.
-            val models = offered.filter { it in plan.models }
-            val limits = models.associateWith { stored(it) }.filterValues { !it.isEmpty }
-            vm.saveTested(ProviderConfig(id, preset.id, name.trim().ifEmpty { defaultName }, base, models,
-                enabled = current?.enabled ?: true, hasKey = current?.hasKey ?: false,
-                contextWindow = tokensOrNull(ctxText), maxTokens = tokensOrNull(maxText)?.toIntSat(), limits = limits, verified = plan.verified,
-                sessionHeader = sessionHeaderOrNull()), key, plan.main, headerRows.toList())
-            savedId = id
+            verified.clear(); verified.addAll(plan.verified); verifiedFor = endpoint
+            pendingMain = plan.main
         }
         result = (outcome is VerifyOutcome.Passed) to describeOutcome(context, outcome, becameMain = plan.main != null)
+    }
+
+    /** 保存 without testing (#59): the editor as it stands; models keep their test state only for an unchanged endpoint. */
+    fun save() {
+        baseUrl = normalizeBaseUrl(baseUrl)
+        val id = current?.id ?: newRouteId(preset.id, s.providers.map { it.id })
+        // Keep the user's order of discovery, checked ones only.
+        val models = offered.filter { it in selected }
+        val ok = verifiedOnSave(models, verified.toList(), verifiedFor.orEmpty(), endpointKey(api, baseUrl, key))
+        val limits = models.associateWith { stored(it) }.filterValues { !it.isEmpty }
+        scope.launch {
+            vm.saveEdited(ProviderConfig(id, preset.id, name.trim().ifEmpty { defaultName }, baseUrl, models,
+                enabled = current?.enabled ?: true, hasKey = current?.hasKey ?: false,
+                contextWindow = tokensOrNull(ctxText), maxTokens = tokensOrNull(maxText)?.toIntSat(), limits = limits, verified = ok,
+                sessionHeader = sessionHeaderOrNull(), api = api), key, pendingMain?.takeIf { it in ok }, headerRows.toList())
+            onDone()
+        }
+    }
+
+    /** The editor's input problem, if any (shared by 测试 and 保存). */
+    fun inputError(): Int? = when {
+        !isHttpUrl(baseUrl) -> R.string.prov_err_url
+        !headersValid() -> R.string.prov_err_header
+        needsKey && key.isBlank() -> R.string.prov_err_key
+        (listOf(ctxText, maxText) + overrides.values.flatMap { listOf(it.first, it.second) }).any { parseTokenInput(it).isFailure } -> R.string.prov_err_limits
+        else -> null
     }
 
     Spacer(Modifier.height(8.dp))
@@ -339,6 +370,12 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
             Text(stringResource(R.string.prov_base_url), style = DshType.xs13m, color = c.labelSecondary)
             DInput(baseUrl, { baseUrl = it.trim() }, placeholder = "https://…/v1", keyboardType = KeyboardType.Uri)
             Text(stringResource(R.string.prov_base_url_hint), style = DshType.xxs12, color = c.labelTertiary)
+            if (preset.responses || api == API_RESPONSES) {
+                Text(stringResource(R.string.prov_api), style = DshType.xs13m, color = c.labelSecondary)
+                Segmented(listOf("Chat Completions", "OpenAI Responses"), if (api == API_RESPONSES) 1 else 0,
+                    { api = if (it == 1) API_RESPONSES else API_CHAT }, compact = true)
+                Text(stringResource(R.string.prov_api_hint), style = DshType.xxs12, color = c.labelTertiary)
+            }
             if (baseUrl.startsWith("http://", ignoreCase = true)) Text(stringResource(R.string.prov_http_warning), style = DshType.xxs12, color = c.error)
             // Warn, but allow saving: something may really listen on the phone (e.g. Termux).
             if (NetDiagnose.isOnDeviceAddress(baseUrl)) Text(stringResource(R.string.prov_local_warning), style = DshType.xxs12, color = c.amber)
@@ -352,6 +389,7 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
                 }.padding(vertical = 4.dp), style = DshType.xs13, color = c.link) else Spacer(Modifier.weight(1f))
                 DButton(stringResource(R.string.prov_fetch), {
                     if (!isHttpUrl(baseUrl)) { error = R.string.prov_err_url; return@DButton }
+                    baseUrl = normalizeBaseUrl(baseUrl)
                     fetchState = "busy"
                     scope.launch {
                         vm.fetchModels(baseUrl, key, current, headerRows.toList(), sessionHeaderOrNull()).onSuccess(::applyListing).onFailure { t ->
@@ -454,7 +492,7 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
                         when (imageOverrides[m]) { null -> 0; true -> 1; false -> 2 },
                         { i -> if (i == 0) imageOverrides.remove(m) else imageOverrides[m] = i == 1 }, compact = true)
                     Text(stringResource(R.string.prov_images_hint), style = DshType.xxs12, color = c.labelTertiary)
-                    ReasoningControlEditor(reasoningDecls[m], { if (it == null) reasoningDecls.remove(m) else reasoningDecls[m] = it },
+                    ReasoningControlEditor(reasoningDecls[m], { if (it == null) reasoningDecls.remove(m) else reasoningDecls[m] = it }, responses = api == API_RESPONSES,
                         auto = existing?.let { p -> s.reasoningCatalog[ReasoningLevels.key(p.id, m)]?.takeIf { it.decl == null } })
                 }
             }
@@ -474,24 +512,18 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
         }
     }
     result?.let { (ok, text) -> Text(text, Modifier.padding(start = 4.dp, top = 12.dp), style = DshType.xs13, color = if (ok) c.labelSecondary else c.error) }
-    val passed = result?.first == true
     Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
         if (current != null) DButton(stringResource(R.string.prov_delete), { vm.deleteProvider(current); onDone() }, variant = BtnVariant.Danger, size = BtnSize.Sm)
         Spacer(Modifier.weight(1f))
-        if (passed) DButton(stringResource(R.string.prov_done), onDone, size = BtnSize.Sm)
-        else {
-            DButton(stringResource(R.string.cancel), onDone, variant = BtnVariant.Outline, size = BtnSize.Sm)
-            DButton(stringResource(R.string.prov_test_save), {
-                error = when {
-                    !isHttpUrl(baseUrl) -> R.string.prov_err_url
-                    !headersValid() -> R.string.prov_err_header
-                    needsKey && key.isBlank() -> R.string.prov_err_key
-                    (listOf(ctxText, maxText) + overrides.values.flatMap { listOf(it.first, it.second) }).any { parseTokenInput(it).isFailure } -> R.string.prov_err_limits
-                    else -> null
-                }
-                if (error == null) scope.launch { testAndSave() }
-            }, size = BtnSize.Sm, enabled = testing == null)
-        }
+        DButton(stringResource(R.string.cancel), onDone, variant = BtnVariant.Outline, size = BtnSize.Sm)
+        DButton(stringResource(R.string.prov_test), {
+            error = inputError()
+            if (error == null) scope.launch { runTest() }
+        }, variant = BtnVariant.Outline, size = BtnSize.Sm, enabled = testing == null)
+        DButton(stringResource(R.string.prov_save), {
+            error = inputError() ?: R.string.prov_err_no_model.takeIf { offered.none { it in selected } }
+            if (error == null) save()
+        }, size = BtnSize.Sm, enabled = testing == null)
     }
 }
 
@@ -502,11 +534,12 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReasoningControlEditor(decl: ReasoningDecl?, onChange: (ReasoningDecl?) -> Unit, auto: ModelReasoning?) {
+private fun ReasoningControlEditor(decl: ReasoningDecl?, onChange: (ReasoningDecl?) -> Unit, responses: Boolean, auto: ModelReasoning?) {
     val c = Dsh.colors
     Text(stringResource(R.string.prov_reasoning), style = DshType.xxs12, color = c.labelSecondary)
+    // The Responses API spells reasoning as an effort only (`reasoning.effort`): no thinking switch to declare there.
     Segmented(listOf(stringResource(R.string.prov_reasoning_auto_unknown), stringResource(R.string.prov_reasoning_none),
-        stringResource(R.string.prov_reasoning_effort), stringResource(R.string.prov_reasoning_switch)),
+        stringResource(R.string.prov_reasoning_effort)) + (if (responses) emptyList() else listOf(stringResource(R.string.prov_reasoning_switch))),
         when (decl?.control) { null -> 0; ReasoningControl.None -> 1; ReasoningControl.Effort -> 2; else -> 3 },
         { i ->
             onChange(when (i) {

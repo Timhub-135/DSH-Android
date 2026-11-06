@@ -16,13 +16,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /*
- * 测试并保存: a provider counts as working only when one real chat request with a tool succeeds.
+ * 测试: a provider counts as working only when one real chat request with a tool succeeds.
  * A listing (`/models`) proves the address and usually the key, not that chats work: the key may
  * lack chat scope, the model may not be enabled for the account, may not support tools, or the
  * gateway may break streaming. The probe sends what the engine sends (llm-service-lite's
  * chatRequest: POST {base}/chat/completions, stream + include_usage, bearer key, the harness
  * User-Agent) through HttpURLConnection, which takes the same system proxy the engine is given
- * (EngineRuntimeEnv), plus one no-argument tool the model is told to call.
+ * (EngineRuntimeEnv), plus one no-argument tool the model is told to call. A Responses route (#59)
+ * gets the engine's responsesRequest shape instead: POST {base}/responses with `instructions`,
+ * `input` and a flat function tool.
  */
 
 /** Why a model failed the connection test. [modelSpecific]: another model of the same provider may still work. */
@@ -234,14 +236,40 @@ fun probeBody(model: String, forceTool: Boolean): String = buildJsonObject {
     if (forceTool) putJsonObject("tool_choice") { put("type", "function"); putJsonObject("function") { put("name", PROBE_TOOL) } }
 }.toString()
 
+/** The probe's body on the Responses API (#59): the same check in that protocol's shape. */
+fun probeResponsesBody(model: String, forceTool: Boolean): String = buildJsonObject {
+    put("model", model)
+    put("stream", true)
+    put("instructions", "This is a connection check. Call the $PROBE_TOOL tool once. Do not reply with text.")
+    putJsonArray("input") { addJsonObject { put("role", "user"); put("content", "Call $PROBE_TOOL now.") } }
+    put("max_output_tokens", 1024)
+    putJsonArray("tools") {
+        addJsonObject {
+            put("type", "function")
+            put("name", PROBE_TOOL)
+            put("description", "Confirms that tool calls work. Takes no arguments.")
+            putJsonObject("parameters") { put("type", "object"); putJsonObject("properties") {}; putJsonArray("required") {} }
+        }
+    }
+    if (forceTool) putJsonObject("tool_choice") { put("type", "function"); put("name", PROBE_TOOL) }
+}.toString()
+
+/** The probe's endpoint and body for [api] ([API_CHAT] or [API_RESPONSES]). */
+fun probeRequest(baseUrl: String, model: String, forceTool: Boolean, api: String = API_CHAT): Pair<String, String> {
+    val base = baseUrl.trim().trimEnd('/')
+    return if (api == API_RESPONSES) "$base/responses" to probeResponsesBody(model, forceTool)
+    else "$base/chat/completions" to probeBody(model, forceTool)
+}
+
 /**
  * One real chat request. Returns null when the answer contains a tool call, else why not.
  * Runs on the caller's thread (call from Dispatchers.IO). The read timeout is generous: a local
  * server (Ollama, LM Studio) may load the model before the first byte.
  */
 fun probeToolCall(baseUrl: String, key: String?, model: String, forceTool: Boolean = true, connectTimeoutMs: Int = 10_000, readTimeoutMs: Int = 90_000,
-    headers: Map<String, String> = emptyMap()): VerifyFailure? = try {
-    val c = URL(baseUrl.trim().trimEnd('/') + "/chat/completions").openConnection() as HttpURLConnection
+    headers: Map<String, String> = emptyMap(), api: String = API_CHAT): VerifyFailure? = try {
+    val (url, body) = probeRequest(baseUrl, model, forceTool, api)
+    val c = URL(url).openConnection() as HttpURLConnection
     try {
         c.connectTimeout = connectTimeoutMs; c.readTimeout = readTimeoutMs
         c.requestMethod = "POST"; c.doOutput = true
@@ -251,7 +279,7 @@ fun probeToolCall(baseUrl: String, key: String?, model: String, forceTool: Boole
         // The provider's extra headers, session header and app User-Agent (appRequestHeaders), as the engine sends them.
         headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
         if (!key.isNullOrBlank()) c.setRequestProperty("authorization", "Bearer ${key.trim()}")
-        c.outputStream.use { it.write(probeBody(model, forceTool).toByteArray()) }
+        c.outputStream.use { it.write(body.toByteArray()) }
         val code = c.responseCode
         if (code !in 200..299) {
             val body = c.errorStream?.use { it.readBytes().decodeToString().take(64_000) }.orEmpty()
@@ -264,7 +292,8 @@ fun probeToolCall(baseUrl: String, key: String?, model: String, forceTool: Boole
 
 /**
  * Reads a chat answer, SSE (`data: {…}` lines) or one JSON object (a server that ignores `stream`),
- * and stops at the first tool call. An `error` frame is classified like a 400 answer.
+ * and stops at the first tool call. An `error` frame is classified like a 400 answer. Reads both
+ * Chat Completions chunks and Responses events (`function_call` items, `response.failed`).
  */
 fun readProbeAnswer(lines: Sequence<String>): VerifyFailure? {
     val reply = StringBuilder()
@@ -275,6 +304,17 @@ fun readProbeAnswer(lines: Sequence<String>): VerifyFailure? {
         val o = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
             ?: return VerifyFailure.Server(200, "unreadable response: " + payload.take(120))
         if (o["error"] != null && o["error"] !is JsonNull) return VerifyErrors.classify(errorStatus(o), payload)
+        // Responses: an `error` event carries code / message at the top level; `response.failed` nests them.
+        when ((o["type"] as? JsonPrimitive)?.content) {
+            "error" -> return VerifyErrors.classify(errorStatus(o), payload)
+            "response.failed" -> ((o["response"] as? JsonObject)?.get("error") as? JsonObject)?.let { e ->
+                val wrapped = JsonObject(mapOf("error" to e))
+                return VerifyErrors.classify(errorStatus(wrapped), wrapped.toString())
+            }
+            "response.output_text.delta" -> (o["delta"] as? JsonPrimitive)?.content?.let { if (reply.length < 300) reply.append(it) }
+        }
+        val items = listOfNotNull(o["item"]) + (o["output"] as? JsonArray).orEmpty() + ((o["response"] as? JsonObject)?.get("output") as? JsonArray).orEmpty()
+        if (items.any { ((it as? JsonObject)?.get("type") as? JsonPrimitive)?.content == "function_call" }) return PASS
         (o["choices"] as? JsonArray)?.forEach { ch ->
             val choice = ch as? JsonObject ?: return@forEach
             val msg = (choice["delta"] ?: choice["message"]) as? JsonObject ?: return@forEach
@@ -313,8 +353,8 @@ private fun errorStatus(o: JsonObject): Int {
  * [probeToolCall], and once more without `tool_choice` when the server rejects that field: the
  * engine never sends it, so a model that calls the tool on its own still works in chats.
  */
-fun probeModel(baseUrl: String, key: String?, model: String, headers: Map<String, String> = emptyMap(),
-    probe: (Boolean) -> VerifyFailure? = { force -> probeToolCall(baseUrl, key, model, force, headers = headers) }): VerifyFailure? {
+fun probeModel(baseUrl: String, key: String?, model: String, headers: Map<String, String> = emptyMap(), api: String = API_CHAT,
+    probe: (Boolean) -> VerifyFailure? = { force -> probeToolCall(baseUrl, key, model, force, headers = headers, api = api) }): VerifyFailure? {
     val first = probe(true) ?: return null
     val msg = when (first) {
         is VerifyFailure.ToolsUnsupported -> first.message
@@ -350,29 +390,41 @@ fun verifyCandidates(candidates: List<String>, max: Int = 3, onTesting: (String)
     return VerifyOutcome.NoModelWorked(failed.toList())
 }
 
-/** What 测试并保存 does with an outcome: the provider's models and verified set, and the new main model. */
-data class SavePlan(val save: Boolean, val models: List<String>, val verified: List<String>, val main: String?)
+/** What 测试 does with an outcome: the editor's models and verified set, and the model a 保存 makes the main one. */
+data class TestPlan(val apply: Boolean, val models: List<String>, val verified: List<String>, val main: String?)
 
 /**
- * [checked]: the models the user ticked, in display order; [previouslyVerified]: the provider's
- * verified set before the test; [makeMain]: a passing model becomes the main model (a new
+ * [checked]: the models the user ticked, in display order; [previouslyVerified]: the editor's
+ * verified set before the test; [makeMain]: a passing model becomes the main model on save (a new
  * provider, or one that already is the main route).
- * - Passed: save, the passing model is added (and is the only model when nothing was ticked).
- * - NoModelWorked: save (the provider answers), no main model; with nothing ticked the tested
- *   models are kept so the user can see them and pick or retest.
- * - Stopped: nothing is saved.
+ * - Passed: the passing model is ticked (and is the only model when nothing was ticked).
+ * - NoModelWorked: the provider answers, no main model; with nothing ticked the tested models are
+ *   ticked so the user can see them and pick or retest.
+ * - Stopped: the editor is left as it was.
+ * Nothing is stored: 保存 is a separate action (#59), see [verifiedOnSave].
  */
-fun planSave(outcome: VerifyOutcome, checked: List<String>, previouslyVerified: List<String>, makeMain: Boolean): SavePlan {
+fun planTest(outcome: VerifyOutcome, checked: List<String>, previouslyVerified: List<String>, makeMain: Boolean): TestPlan {
     val failedIds = outcome.failed.map { it.first }.toSet()
     return when (outcome) {
         is VerifyOutcome.Passed -> {
             val models = (checked + outcome.model).distinct()
-            SavePlan(true, models, (previouslyVerified.filter { it in models && it !in failedIds } + outcome.model).distinct(), outcome.model.takeIf { makeMain })
+            TestPlan(true, models, (previouslyVerified.filter { it in models && it !in failedIds } + outcome.model).distinct(), outcome.model.takeIf { makeMain })
         }
         is VerifyOutcome.NoModelWorked -> {
             val models = checked.ifEmpty { outcome.failed.map { it.first } }
-            SavePlan(true, models, previouslyVerified.filter { it in models && it !in failedIds }, null)
+            TestPlan(true, models, previouslyVerified.filter { it in models && it !in failedIds }, null)
         }
-        is VerifyOutcome.Stopped -> SavePlan(false, checked, previouslyVerified, null)
+        is VerifyOutcome.Stopped -> TestPlan(false, checked, previouslyVerified, null)
     }
 }
+
+/** What a test result is valid for: protocol, base URL and the typed key (blank = the stored one). */
+fun endpointKey(api: String, baseUrl: String, typedKey: String): String = listOf(api, normalizeBaseUrl(baseUrl), typedKey.trim()).joinToString("\n")
+
+/**
+ * The verified set 保存 stores (#59: saving does not test): the editor's [verified] set (as saved, or
+ * from this visit's 测试) while it was established for the [endpoint] being saved, kept to [models];
+ * after a change of protocol, address or key, nothing counts as tested.
+ */
+fun verifiedOnSave(models: List<String>, verified: List<String>, verifiedFor: String, endpoint: String): List<String> =
+    if (verifiedFor == endpoint) verified.filter { it in models }.distinct() else emptyList()

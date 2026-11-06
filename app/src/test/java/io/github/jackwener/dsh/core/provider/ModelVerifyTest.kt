@@ -191,13 +191,63 @@ class ModelVerifyTest {
         assertIs<VerifyOutcome.Stopped>(key); assertEquals(listOf("a"), tried)
     }
 
-    @Test fun savePlans() {
+    @Test fun testPlans() {
         val passed = VerifyOutcome.Passed("b", listOf("a" to VerifyFailure.ModelNotFound("x")))
-        assertEquals(SavePlan(true, listOf("a", "c", "b"), listOf("c", "b"), "b"), planSave(passed, listOf("a", "c"), listOf("a", "c", "gone"), makeMain = true))
-        assertEquals(SavePlan(true, listOf("b"), listOf("b"), null), planSave(passed, emptyList(), emptyList(), makeMain = false))
+        assertEquals(TestPlan(true, listOf("a", "c", "b"), listOf("c", "b"), "b"), planTest(passed, listOf("a", "c"), listOf("a", "c", "gone"), makeMain = true))
+        assertEquals(TestPlan(true, listOf("b"), listOf("b"), null), planTest(passed, emptyList(), emptyList(), makeMain = false))
         val none = VerifyOutcome.NoModelWorked(listOf("a" to VerifyFailure.NoToolCall(""), "b" to VerifyFailure.ModelNotFound("")))
-        assertEquals(SavePlan(true, listOf("a", "b"), emptyList(), null), planSave(none, emptyList(), listOf("a"), makeMain = true))
-        assertFalse(planSave(VerifyOutcome.Stopped(VerifyFailure.KeyInvalid(""), emptyList()), listOf("a"), emptyList(), true).save)
+        assertEquals(TestPlan(true, listOf("a", "b"), emptyList(), null), planTest(none, emptyList(), listOf("a"), makeMain = true))
+        assertFalse(planTest(VerifyOutcome.Stopped(VerifyFailure.KeyInvalid(""), emptyList()), listOf("a"), emptyList(), true).apply)
+    }
+
+    @Test fun saveWithoutTestKeepsTestStateOnlyForTheSameEndpoint() {
+        // #59: 保存 does not test. The saved set holds while protocol, address and key are unchanged.
+        val saved = endpointKey(API_CHAT, "https://h/v1", "")
+        assertEquals(listOf("a"), verifiedOnSave(listOf("a", "new"), listOf("a", "gone"), saved, endpointKey(API_CHAT, "https://h/v1/", " ")))
+        assertEquals(emptyList<String>(), verifiedOnSave(listOf("a"), listOf("a"), saved, endpointKey(API_RESPONSES, "https://h/v1", "")))
+        assertEquals(emptyList<String>(), verifiedOnSave(listOf("a"), listOf("a"), saved, endpointKey(API_CHAT, "https://other/v1", "")))
+        assertEquals(emptyList<String>(), verifiedOnSave(listOf("a"), listOf("a"), saved, endpointKey(API_CHAT, "https://h/v1", "sk-new")))
+        // A new provider never tested: nothing verified.
+        assertEquals(emptyList<String>(), verifiedOnSave(listOf("a"), emptyList(), "", endpointKey(API_CHAT, "https://h/v1", "k")))
+    }
+
+    // ── Responses API probe (#59) ──
+
+    @Test fun responsesProbeShape() {
+        val (url, body) = probeRequest("https://api.openai.com/v1/", "gpt-5", forceTool = true, api = API_RESPONSES)
+        assertEquals("https://api.openai.com/v1/responses", url)
+        val o = Json.parseToJsonElement(body).jsonObject
+        assertEquals("true", o["stream"]!!.jsonPrimitive.content)
+        assertTrue(o.containsKey("instructions"))
+        assertTrue(o.containsKey("input"))
+        assertTrue(o.containsKey("max_output_tokens"))
+        assertFalse(o.containsKey("messages") || o.containsKey("stream_options") || o.containsKey("max_tokens"))
+        assertTrue(o["tools"].toString().contains("\"type\":\"function\",\"name\":\"$PROBE_TOOL\""))
+        assertEquals("""{"type":"function","name":"$PROBE_TOOL"}""", o["tool_choice"].toString())
+        assertFalse(Json.parseToJsonElement(probeRequest("u", "m", forceTool = false, api = API_RESPONSES).second).jsonObject.containsKey("tool_choice"))
+        assertEquals("u/chat/completions", probeRequest("u", "m", true).first)
+    }
+
+    @Test fun readsResponsesEvents() {
+        fun ev(vararg frames: String) = frames.flatMap { listOf("event: x", "data: $it", "") }.asSequence()
+        val call = """{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"c1","name":"$PROBE_TOOL","arguments":""}}"""
+        assertNull(readProbeAnswer(ev("""{"type":"response.created","response":{"id":"r","output":[]}}""", call)))
+        // A whole (non-streamed) response object.
+        assertNull(readProbeAnswer(sequenceOf("""{"id":"r","object":"response","error":null,"output":[{"type":"function_call","name":"$PROBE_TOOL","arguments":"{}"}]}""")))
+        assertEquals(VerifyFailure.NoToolCall("pong"), readProbeAnswer(ev("""{"type":"response.output_text.delta","delta":"pong"}""",
+            """{"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"pong"}]}]}}""")))
+        assertIs<VerifyFailure.ModelNotFound>(readProbeAnswer(ev("""{"type":"response.failed","response":{"error":{"code":"model_not_found","message":"The model x does not exist"}}}""")))
+        assertIs<VerifyFailure.Quota>(readProbeAnswer(ev("""{"type":"error","code":"rate_limit_exceeded","message":"Rate limit reached","param":null}""")))
+    }
+
+    @Test fun responsesProbeAgainstFakeServer() {
+        answers["gpt-5"] = Triple(200, "text/event-stream",
+            "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"name\":\"$PROBE_TOOL\"}}\n\n")
+        assertNull(probeModel(base, "sk-test", "gpt-5", api = API_RESPONSES))
+        val (headers, body) = requests.single()
+        assertEquals("/v1/responses", headers["path"])
+        assertEquals("Bearer sk-test", headers["authorization"])
+        assertTrue(Json.parseToJsonElement(body).jsonObject.containsKey("input"))
     }
 
     // ── against a local HTTP server ──
@@ -210,9 +260,9 @@ class ModelVerifyTest {
 
     @Before fun startServer() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/v1/chat/completions") { ex ->
+        val handler = com.sun.net.httpserver.HttpHandler { ex ->
             val body = ex.requestBody.readBytes().decodeToString()
-            requests += ex.requestHeaders.entries.associate { it.key.lowercase() to it.value.joinToString(",") } to body
+            requests += ex.requestHeaders.entries.associate { it.key.lowercase() to it.value.joinToString(",") } + ("path" to ex.requestURI.path) to body
             val model = Json.parseToJsonElement(body).jsonObject["model"]!!.jsonPrimitive.content
             val (status, type, text) = answers[model] ?: Triple(404, "application/json", """{"error":{"message":"The model `$model` does not exist","code":"model_not_found"}}""")
             val bytes = text.toByteArray()
@@ -220,6 +270,8 @@ class ModelVerifyTest {
             ex.sendResponseHeaders(status, bytes.size.toLong())
             ex.responseBody.use { it.write(bytes) }
         }
+        server.createContext("/v1/chat/completions", handler)
+        server.createContext("/v1/responses", handler)
         server.start()
     }
 
