@@ -27,7 +27,11 @@ def main() -> int:
             if os.path.exists(whl):
                 os.remove(whl)
             r = subprocess.run([sys.executable, "-m", "pip", "download", "--no-deps",
-                                "--only-binary=:all:", "--dest", cache, f"{name}=={ver}"],
+                                "--only-binary=:all:", "--no-cache-dir",
+                                # Force a pure wheel: platform wheels (cp3x-manylinux) are not loadable on bionic.
+                                "--platform", "any", "--python-version", "3.14",
+                                "--implementation", "py", "--abi", "none",
+                                "--dest", cache, f"{name}=={ver}"],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 print(f"pip download failed: {name}=={ver}\n{r.stderr[-500:]}", file=sys.stderr)
