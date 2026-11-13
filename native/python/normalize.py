@@ -22,6 +22,9 @@ import argparse, hashlib, os, re, shutil, struct, sys
 PT_LOAD, PT_DYNAMIC, PT_INTERP = 1, 2, 3
 DT_NEEDED, DT_SONAME, DT_RPATH, DT_RUNPATH, DT_STRTAB, DT_STRSZ = 1, 14, 15, 29, 5, 10
 SYSTEM_LIBS = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libstdc++.so"}
+# The Node half of the APK ships its own libc++_shared.so; AGP refuses duplicate jniLibs names.
+# Rename the Python-side copy and rewrite its dependents' NEEDED entries.
+FORCED_RENAMES = {"libc++_shared.so": "libcxx_py.so"}
 
 
 def die(msg: str) -> "NoReturn":
@@ -154,6 +157,9 @@ def patch(data: bytes, rename: dict[str, str]) -> bytes:
 
 
 def unversioned(filename: str, soname: str | None) -> str:
+    for key in (soname, filename):
+        if key in FORCED_RENAMES:
+            return FORCED_RENAMES[key]
     if soname:
         return re.sub(r"\.so(\.\d+)+$", ".so", soname)
     stripped = re.sub(r"\.so(\.\d+)+$", ".so", filename)
