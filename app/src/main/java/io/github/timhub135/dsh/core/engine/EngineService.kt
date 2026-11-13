@@ -73,6 +73,7 @@ class EngineService : Service() {
                 ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_TRUNCATE)
 
             EngineRuntimeEnv.apply(this@EngineService, env)
+            EngineInstaller.materializePythonCa(this@EngineService, engineDir)
             Os.setenv("DSH_BRIDGE_FD", bridgeFd.toString(), true)
             File(env.getString("TMPDIR") ?: cacheDir.path).mkdirs()
             File(env.getString("HOME") ?: filesDir.path).mkdirs()

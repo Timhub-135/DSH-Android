@@ -29,6 +29,7 @@ object EngineInstaller {
             marker.writeText(sha)
         }
         linkTools(context)
+        linkPython(context, dir)
         return dir
     }
 
@@ -36,13 +37,54 @@ object EngineInstaller {
     private fun linkTools(context: Context) {
         val bin = File(context.filesDir, "bin").apply { mkdirs() }
         val nativeDir = context.applicationInfo.nativeLibraryDir
-        mapOf("rg" to "librg.so", "node" to "libdshnode.so").forEach { (name, lib) ->
+        mapOf("rg" to "librg.so", "node" to "libdshnode.so", "python" to "libdshpython.so").forEach { (name, lib) ->
             val link = File(bin, name)
             val target = File(nativeDir, lib)
             if (!target.exists()) return@forEach
             runCatching { if (Os.readlink(link.path) == target.path) return@forEach }
             link.delete()
             Os.symlink(target.path, link.path)
+        }
+    }
+    /**
+     * Python extension modules ship in nativeLibraryDir as lib*.so (the only place Android lets an app
+     * load/execute code); the Python tree gets symlinks with the names CPython's import machinery looks
+     * for. `python/ext-map.txt` has one `<path under python/> TAB <lib file name>` line per module.
+     */
+    private fun linkPython(context: Context, engineDir: File) {
+        val pythonRoot = File(engineDir, "python")
+        val map = File(pythonRoot, "ext-map.txt")
+        if (!map.isFile) return
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        map.useLines { lines ->
+            lines.filter { it.isNotBlank() && !it.startsWith("#") }.forEach { line ->
+                val parts = line.split('\t')
+                if (parts.size != 2) return@forEach
+                val target = File(nativeDir, parts[1].trim())
+                if (!target.exists()) return@forEach
+                val link = File(pythonRoot, parts[0].trim())
+                link.parentFile?.mkdirs()
+                runCatching { if (Os.readlink(link.path) == target.path) return@forEach }
+                link.delete()
+                Os.symlink(target.path, link.path)
+            }
+        }
+    }
+
+    /**
+     * pip's vendored certifi points at Termux's CA store; replace it with the Android trust store the
+     * engine exports for Node (EngineRuntimeEnv.CaBundle), so `python -m pip` and requests trust HTTPS.
+     */
+    fun materializePythonCa(context: Context, engineDir: File) {
+        val ca = File(context.filesDir, "certs/android-ca.pem")
+        if (!ca.isFile) return
+        val sitePackages = File(engineDir, "python/lib/python3.14/site-packages")
+        listOf("pip/_vendor/certifi/cacert.pem", "certifi/cacert.pem").forEach { rel ->
+            val dest = File(sitePackages, rel)
+            if (dest.parentFile?.isDirectory == true) runCatching {
+                dest.delete()
+                ca.copyTo(dest)
+            }
         }
     }
 }

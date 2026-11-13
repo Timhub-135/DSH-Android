@@ -73,6 +73,10 @@ android {
     // Native engine (libnode, JNI wrapper, addons, rg) and the dsh engine bundle are built outside Gradle:
     // native/build.sh and js/build-engine.sh. Point these at their output directories.
     sourceSets["main"].jniLibs.directories += providers.gradleProperty("dsh.nativeOut").orElse("../toolchains/out/jniLibs").get()
+    // Optional Python runtime jniLibs (native/python); absent in the Node-only build.
+    providers.gradleProperty("dsh.pythonOut").orNull?.let { dir ->
+        if (file(dir).isDirectory) sourceSets["main"].jniLibs.directories += dir
+    }
     sourceSets["main"].assets.directories += providers.gradleProperty("dsh.engineOut").orElse("../toolchains/out/engine").get()
 }
 

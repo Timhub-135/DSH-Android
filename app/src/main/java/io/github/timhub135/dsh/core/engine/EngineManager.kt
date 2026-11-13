@@ -518,6 +518,21 @@ class EngineManager @Inject constructor(
         putString("DSH_NATIVE_DIR", context.applicationInfo.nativeLibraryDir)
         // The node launcher for engine children: bundled pnpm, npm stdio MCP servers (PLUGINS-CONTRACT §1).
         putString("DSH_NODE_BIN", File(context.applicationInfo.nativeLibraryDir, "libdshnode.so").path)
+        // Python 3.14 (Termux prebuilt) embedded in engine.zip under python/; absent in a Node-only build.
+        val engineSha = context.assets.open("engine.sha256").bufferedReader().use { it.readText().trim().take(16) }
+        val engineDir = File(files, "engine").resolve(engineSha)
+        val pythonHome = File(engineDir, "python")
+        val pythonSite = File(pythonHome, "lib/python3.14/site-packages")
+        putString("DSH_ENGINE_DIR", engineDir.path)
+        putString("PYTHONHOME", pythonHome.path)
+        putString("PYTHONPATH", pythonSite.path)
+        putString("PYTHONUTF8", "1")
+        putString("SSL_CERT_FILE", File(files, "certs/android-ca.pem").path)
+        putString("REQUESTS_CA_BUNDLE", File(files, "certs/android-ca.pem").path)
+        putString("PIP_CACHE_DIR", File(files, "dsh-home/python/cache").path)
+        putString("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+        putString("PDF_PARSER_ENABLE_OCR", "0")
+        putString("LD_LIBRARY_PATH", context.applicationInfo.nativeLibraryDir)
         apiKey?.let { putString("DEEPSEEK_API_KEY", it) }
         providerKeys.forEach { (env, key) -> putString(env, key) }
         putString("DSH_ANDROID_PACKAGE", context.packageName)
