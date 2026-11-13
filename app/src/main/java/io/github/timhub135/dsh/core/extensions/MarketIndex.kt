@@ -25,13 +25,10 @@ object MarketIndex {
      */
     const val CURATED_URL = "https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json"
 
-    /** Former addresses of [CURATED_URL] (the repository was Timhub-135/DSH-Android); the engine migrates stored lists. */
-    val LEGACY_CURATED_URLS = listOf("https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json")
+    fun isCurated(url: String): Boolean = url == CURATED_URL
 
-    fun isCurated(url: String): Boolean = url == CURATED_URL || url in LEGACY_CURATED_URLS
-
-    /** [urls] with former curated addresses replaced by [CURATED_URL], order kept, duplicates dropped (same rule as the engine's migrateIndexes). */
-    fun migrateIndexes(urls: List<String>): List<String> = urls.map { if (it in LEGACY_CURATED_URLS) CURATED_URL else it }.distinct()
+    /** Order kept, duplicates dropped (same rule as the engine's migrateIndexes). */
+    fun migrateIndexes(urls: List<String>): List<String> = urls.distinct()
 
     data class Document(val title: LocalizedText, val description: LocalizedText?, val metadata: MarketIndexMetadata, val plugins: List<MarketEntry>)
 
