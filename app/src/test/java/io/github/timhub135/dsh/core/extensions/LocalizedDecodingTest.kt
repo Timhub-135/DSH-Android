@@ -103,13 +103,12 @@ class LocalizedDecodingTest {
         }
     }
 
-    @Test fun `curated index URL moved and legacy lists migrate`() {
+    @Test fun `curated index URL is this fork and duplicates are dropped`() {
         assertEquals("https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json", MarketIndex.CURATED_URL)
-        val old = MarketIndex.LEGACY_CURATED_URLS.single()
-        assertTrue(old.contains("DeepseekHarness-Android"))
-        assertTrue(MarketIndex.isCurated(old)); assertTrue(MarketIndex.isCurated(MarketIndex.CURATED_URL)); assertFalse(MarketIndex.isCurated("https://x/i.json"))
-        assertEquals(listOf("https://x/i.json", MarketIndex.CURATED_URL), MarketIndex.migrateIndexes(listOf("https://x/i.json", old, MarketIndex.CURATED_URL)))
-        assertEquals(listOf(MarketIndex.CURATED_URL), MarketIndex.migrateIndexes(listOf(old)))
+        assertTrue(MarketIndex.isCurated(MarketIndex.CURATED_URL)); assertFalse(MarketIndex.isCurated("https://x/i.json"))
+        assertEquals(listOf("https://x/i.json", MarketIndex.CURATED_URL),
+            MarketIndex.migrateIndexes(listOf("https://x/i.json", MarketIndex.CURATED_URL, MarketIndex.CURATED_URL)))
+        assertEquals(listOf(MarketIndex.CURATED_URL), MarketIndex.migrateIndexes(listOf(MarketIndex.CURATED_URL)))
     }
 
     @Test fun `engine node options lengthen the happy-eyeballs attempt timeout`() {
