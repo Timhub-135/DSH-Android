@@ -1,5 +1,7 @@
 # native/ — Node for Android arm64
 
+> Python 3.14（Termux 预编译）不在这里构建：见 [`native/python/README.md`](python/README.md)。
+
 Builds what the `:engine` process loads:
 
 | Output | jniLibs name | What |

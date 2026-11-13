@@ -126,8 +126,10 @@ jobs:
         run: |
           apksigner="$(command -v apksigner || true)"
           if [ -z "$apksigner" ]; then
-            apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+            sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+            apksigner="$(ls -d "$sdk"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
           fi
+          [ -n "$apksigner" ] || { echo "apksigner not found" >&2; exit 1; }
           "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk \
             | grep -qi "$EXPECTED_SIGNER"
 
