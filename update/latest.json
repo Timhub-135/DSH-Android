@@ -1,21 +1,21 @@
 {
   "format": 1,
   "packageName": "io.github.timhub135.dsh",
-  "versionCode": 30,
-  "versionName": "0.3.12-fork.1",
+  "versionCode": 31,
+  "versionName": "0.3.12-fork.2",
   "minSdk": 29,
   "apk": {
-    "name": "DSH-Android-v0.3.12-fork.1-arm64.apk",
-    "size": 158432495,
-    "sha256": "103723b24e03dfb13a3e7a0b195eac7da79cffe7b59d10c950a31791e5d34ebe",
+    "name": "DSH-Android-v0.3.12-fork.2-arm64.apk",
+    "size": 158435213,
+    "sha256": "cf7818da89e42bd3bbd2ad3846b795a94480044a502a7858195f1624cba8a61e",
     "urls": [
-      "https://github.com/Timhub-135/DSH-Android/releases/download/v0.3.12-fork.1/DSH-Android-v0.3.12-fork.1-arm64.apk"
+      "https://github.com/Timhub-135/DSH-Android/releases/download/v0.3.12-fork.2/DSH-Android-v0.3.12-fork.2-arm64.apk"
     ]
   },
   "signerSha256": "31c7e843953e3718ae633a6c7396068ddce8ca822f628cd3db4969f6ca3fc6ab",
   "notes": {
-    "zh": "DSH-Android fork v0.3.12-fork.1\n\n- 包名 io.github.timhub135.dsh，新签名证书\n- 移除 Shizuku；Python 3.14（numpy/pandas/matplotlib/Pillow）",
-    "en": "DSH-Android fork v0.3.12-fork.1\n\n- package io.github.timhub135.dsh, new signing key\n- Shizuku removed; Python 3.14 (numpy/pandas/matplotlib/Pillow)"
+    "zh": "DSH-Android fork v0.3.12-fork.2\n\n- 包名 io.github.timhub135.dsh，新签名证书\n- 移除 Shizuku；Python 3.14（numpy/pandas/matplotlib/Pillow）",
+    "en": "DSH-Android fork v0.3.12-fork.2\n\n- package io.github.timhub135.dsh, new signing key\n- Shizuku removed; Python 3.14 (numpy/pandas/matplotlib/Pillow)"
   },
-  "publishedAt": "2026-11-13T08:01:40Z"
+  "publishedAt": "2026-11-13T09:03:16Z"
 }
