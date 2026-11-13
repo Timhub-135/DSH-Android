@@ -72,9 +72,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
       - name: install SDK packages (compileSdk 37.2)
-        run: sdkmanager "platforms;android-37.2" "build-tools;36.0.0"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          SDKMGR="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1)"
+          [ -x "$SDKMGR" ] || { echo "sdkmanager not found under $ANDROID_HOME" >&2; exit 1; }
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-37.2" "build-tools;36.0.0"
+      - name: Android SDK env for Gradle
+        run: echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-node@v4
         with:
