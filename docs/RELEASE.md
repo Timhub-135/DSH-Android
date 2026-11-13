@@ -2,6 +2,20 @@
 
 DSH-Android 只通过 GitHub Releases 分发。App 内更新（`core/update/`）读取每个版本附带的 `update.json`，所以每次发布除了 APK，还要生成并上传这个文件，再把同一份内容提交到仓库的 `update/latest.json`。
 
+## 发布前：零 skill 门禁
+
+发布包和仓库都不得包含用户 skill；skill 只能在安装后从 App 的 设置 → 扩展 → Skills 导入。发布前三道扫描必须通过（任一失败 exit 1）：
+
+```bash
+tools/check-no-user-skills.sh repo
+tools/check-no-user-skills.sh engine <engine.zip>
+tools/check-no-user-skills.sh apk <apk>
+```
+
+- Release 资产只允许 **APK + `update.json`**，不要上传 zip、skill 包或其他附件；
+- 发布说明、截图、README 里不出现任何私有 skill 的名称、路径或脚本；
+- 仓库不跟踪 `SKILL.md`、`skills/`、`*.skill`、`.dsh/`、`.venv/`（`.gitignore` 已覆盖）；本地构建前先跑一遍 `repo` 模式。
+
 ## 步骤
 
 1. **改版本号**：`app/build.gradle.kts` 里 `versionCode` 加 1（不能复用），`versionName` 改成新版本。

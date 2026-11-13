@@ -398,13 +398,13 @@ interface ToolResult {
   ok: boolean
   content: Array<{ type: "text", text: string } | { type: "image", mimeType: string, data: string /* base64 */ }>
   error?: { code: "not_authorized" | "permission_missing" | "device_locked_timeout" | "waiting_for_user" | "timeout" | "cancelled"
-                 | "invalid_args" | "shizuku_unavailable" | "needs_user" | "failed" | string, message: string }
+                 | "invalid_args" | "android_data_restricted" | "needs_user" | "failed" | string, message: string }
 }
 ```
 
-Descriptions are static: they never carry live state (Shizuku up/down, permissions), because every description
-change re-lists the tools and re-bills the cached prompt. Availability is reported in the call's result (`path=…`,
-"via Shizuku") or error (`shizuku_unavailable`, `permission_missing`). `capability/changed` is only sent when the
+Descriptions are static: they never carry live state (permissions), because every description
+change re-lists the tools and re-bills the cached prompt. Availability is reported in the call's result (`path=…`)
+or error (`permission_missing`, `android_data_restricted`). `capability/changed` is only sent when the
 user changes which tool groups are enabled.
 
 The app is authoritative for: which groups are enabled, runtime permissions, lock-state waiting (a `needsUnlock` call while locked is held by the app, which posts a "continue after unlock" notification; the request resolves after unlock, or with `waiting_for_user` when the budget runs out), and unattended whitelists.
@@ -418,7 +418,7 @@ later, or send an SMS twice after a retry). The rules:
    truth. The plugin registers the dsh tool with `timeoutMs + 15 s`, sends `timeoutMs` in `capability/invoke`, and
    times the bridge request out at `timeoutMs + 10 s`.
 2. **The app answers first.** CapabilityHub runs the call with a deadline of `timeoutMs − 5 s`. Every wait for the
-   user inside it — unlock, the permission card, the Shizuku card, the takeover card — is a cancellable suspension
+   user inside it — unlock, the permission card, the takeover card — is a cancellable suspension
    bounded by that deadline. When the deadline passes the call is cancelled and answered with
    `waiting_for_user` ("still waiting for the user to …; nothing was done; call again") or `timeout` (the tool's own
    work overran). The model can simply call the tool again when the user is ready.
@@ -459,7 +459,7 @@ later, or send an SMS twice after a retry). The rules:
 - `@dsh-android/plugin-guard`: hardline command floor for the shell tool (relative paths resolve against the session
   cwd and any `cd` earlier in the command); approval policy (§2); token/cost budget enforcement from `budget/update`;
   system-prompt section describing the phone context and the tool-priority rule (system API > intent/deeplink >
-  Shizuku > accessibility clicks), whose "works while locked" examples are derived from `needsUnlock:false`
+  accessibility), whose "works while locked" examples are derived from `needsUnlock:false`
   descriptors; unattended-run context; post-turn reflection for the App 经验库 (`experience.js`: one tool-free call
   with the session's model over a ≤3k-char step trace, metered into the budget ledger); dsh `ctx.logger` warnings/errors mirrored to stderr (`[dsh:<name>] warn: …` in
   engine.log); third-party models' reasoning levels for the composer (`android/models/reasoning`, §2).

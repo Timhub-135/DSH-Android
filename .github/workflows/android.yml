@@ -1,0 +1,152 @@
+# Android CI（模板）—— x86_64 ubuntu-24.04，两个 job：
+#   python-runtime：Termux Python 运行时（预编译产物走 artifact，不发公开 Release）
+#   apk：下载 Python artifact → 从 fork 拉 Node 原生库 → engine.zip → Gradle 签名 APK
+#        → 证书指纹/体积/零 skill 门禁 → 上传 artifact
+#
+# 触发：workflow_dispatch 或 push tag v*。不在 pull_request 上运行（避免 secrets 暴露）。
+#
+# 仓库侧前置条件（见 docs/RELEASE.md 与一次性 fork 方案）：
+#   1. Node 原生库已用 tools/bootstrap-native.sh 一次性镜像到本 fork；
+#      之后构建只从 fork 拉：GH_REPO=Timhub-135/DSH-Android native/prebuilt.sh fetch。
+#   2. Python 运行时脚本已落地：native/python/fetch-termux.sh、normalize.py、check.sh，
+#      且 js/build-engine.sh 支持 PYTHON_RUNTIME、app/build.gradle.kts 支持 dsh.pythonOut。
+#   3. GitHub Secrets（绝不写进仓库）：DSH_KEYSTORE_BASE64、DSH_STORE_PASSWORD、
+#      DSH_KEY_ALIAS、DSH_KEY_PASSWORD。
+# 本文件不含任何上游仓库 URL，也不含明文密码。
+name: android
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  GH_REPO: Timhub-135/DSH-Android
+  GH_TOKEN: ${{ github.token }}
+  # 发布证书 SHA-256（公开信息，不是密钥；用于禁止回退到 debug key）。
+  EXPECTED_SIGNER: 31c7e843953e3718ae633a6c7396068ddce8ca822f628cd3db4969f6ca3fc6ab
+
+jobs:
+  python-runtime:
+    name: python-runtime (artifact)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: cache Termux staging (key = manifest hash)
+        uses: actions/cache@v4
+        with:
+          path: toolchains/python-stage
+          key: python-termux-${{ hashFiles('native/python/manifest.json') }}
+      - name: fetch Termux debs (sha256 pinned by manifest)
+        run: native/python/fetch-termux.sh --out toolchains/python-stage
+      - name: normalize ELF + ext-map
+        run: python3 native/python/normalize.py toolchains/python-stage --out-dir toolchains/out
+      - name: static check
+        run: native/python/check.sh toolchains/out
+      - name: upload python runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-runtime
+          path: |
+            toolchains/out/python-jniLibs
+            toolchains/out/python-runtime
+          retention-days: 30
+
+  apk:
+    name: apk
+    needs: python-runtime
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: zero user skills (repo)
+        run: tools/check-no-user-skills.sh repo
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: install SDK packages (compileSdk 37.2)
+        run: sdkmanager "platforms;android-37.2" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: js/engine/package-lock.json
+
+      - name: download python runtime artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-runtime
+          path: toolchains/out
+
+      - name: fetch Node native libs (fork mirror only)
+        run: GH_REPO=Timhub-135/DSH-Android native/prebuilt.sh fetch
+
+      - name: build engine bundle (with Python runtime)
+        env:
+          OUT_DIR: ${{ github.workspace }}/toolchains/out/engine
+          PYTHON_RUNTIME: ${{ github.workspace }}/toolchains/out/python-runtime
+        run: js/build-engine.sh
+
+      - name: python runtime static check (post-download)
+        run: native/python/check.sh toolchains/out
+
+      - name: restore keystore (p12 -> jks, values from secrets only)
+        run: |
+          printf '%s' "${{ secrets.DSH_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/dsh-release.p12"
+          keytool -importkeystore -noprompt \
+            -srckeystore "$RUNNER_TEMP/dsh-release.p12" -srcstoretype PKCS12 \
+            -srcstorepass "${{ secrets.DSH_STORE_PASSWORD }}" \
+            -destkeystore "$RUNNER_TEMP/dsh-release.jks" -deststoretype JKS \
+            -deststorepass "${{ secrets.DSH_STORE_PASSWORD }}" \
+            -srcalias "${{ secrets.DSH_KEY_ALIAS }}" -destalias "${{ secrets.DSH_KEY_ALIAS }}" \
+            -srckeypass "${{ secrets.DSH_KEY_PASSWORD }}" -destkeypass "${{ secrets.DSH_KEY_PASSWORD }}"
+
+      - name: Gradle unit tests + signed release APK
+        run: |
+          ./gradlew testDebugUnitTest assembleRelease \
+            -Pdsh.engineOut="$GITHUB_WORKSPACE/toolchains/out/engine" \
+            -Pdsh.nativeOut="$GITHUB_WORKSPACE/toolchains/out/jniLibs" \
+            -Pdsh.pythonOut="$GITHUB_WORKSPACE/toolchains/out/python-jniLibs" \
+            -Pdsh.signing.storeFile="$RUNNER_TEMP/dsh-release.jks" \
+            -Pdsh.signing.storePassword="${{ secrets.DSH_STORE_PASSWORD }}" \
+            -Pdsh.signing.keyAlias="${{ secrets.DSH_KEY_ALIAS }}" \
+            -Pdsh.signing.keyPassword="${{ secrets.DSH_KEY_PASSWORD }}"
+
+      - name: verify signer fingerprint (never fall back to debug key)
+        run: |
+          apksigner="$(command -v apksigner || true)"
+          if [ -z "$apksigner" ]; then
+            apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+          fi
+          "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk \
+            | grep -qi "$EXPECTED_SIGNER"
+
+      - name: size gate and no upstream strings
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          test "$(stat -c%s "$apk")" -le $((190 * 1024 * 1024))
+          rm -rf /tmp/apk && mkdir -p /tmp/apk && unzip -q "$apk" -d /tmp/apk
+          ! grep -rIl "jackwener/DSH-Android" /tmp/apk
+          ! grep -rIl "github.com/jackwener" /tmp/apk
+
+      - name: zero user skills (engine + apk)
+        run: |
+          tools/check-no-user-skills.sh engine toolchains/out/engine/engine.zip
+          tools/check-no-user-skills.sh apk app/build/outputs/apk/release/app-release.apk
+
+      - name: upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
