@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:sessionService="io.github.jackwener.dsh.service.DshVoiceSessionService"
-    android:recognitionService="io.github.jackwener.dsh.service.DshRecognitionService"
+    android:sessionService="io.github.timhub135.dsh.service.DshVoiceSessionService"
+    android:recognitionService="io.github.timhub135.dsh.service.DshRecognitionService"
     android:supportsAssist="true"
     android:supportsLaunchVoiceAssistFromKeyguard="false" />

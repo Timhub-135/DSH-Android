@@ -21,7 +21,7 @@ DSH-Android 只通过 GitHub Releases 分发。App 内更新（`core/update/`）
    ```bash
    tools/make-update-manifest.py DSH-Android-vX.Y.Z-arm64.apk \
      --notes-zh notes-zh.md --notes-en notes-en.md \
-     --expect-signer 2b37a375ead19476e5d0d9e38920032ea9822e880dcc7540a14e5ab6ac1f4f69 \
+     --expect-signer 31c7e843953e3718ae633a6c7396068ddce8ca822f628cd3db4969f6ca3fc6ab \
      -o update/latest.json
    ```
 
@@ -37,10 +37,10 @@ DSH-Android 只通过 GitHub Releases 分发。App 内更新（`core/update/`）
 7. **刷新 jsDelivr 缓存**（`@main` 的文件会被缓存几个小时）：
 
    ```bash
-   curl -s https://purge.jsdelivr.net/gh/jackwener/DSH-Android@main/update/latest.json
+   curl -s https://purge.jsdelivr.net/gh/Timhub-135/DSH-Android@main/update/latest.json
    ```
 
-8. **验证**：`curl -sL https://github.com/jackwener/DSH-Android/releases/latest/download/update.json` 能拿到新清单；在装着上一个版本的手机上，设置 → 关于 → 检查更新，应当提示新版本，下载、校验并安装成功。
+8. **验证**：`curl -sL https://github.com/Timhub-135/DSH-Android/releases/latest/download/update.json` 能拿到新清单；在装着上一个版本的手机上，设置 → 关于 → 检查更新，应当提示新版本，下载、校验并安装成功。
 
 ## 约定
 

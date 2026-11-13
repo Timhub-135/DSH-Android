@@ -14,13 +14,13 @@ fun shizukuPin(name: String): String =
         ?: error("tools/fetch-shizuku.sh: missing $name pin")
 
 android {
-    namespace = "io.github.jackwener.dsh"
+    namespace = "io.github.timhub135.dsh"
     compileSdk {
         version = release(37) { minorApiLevel = 2 }
     }
 
     defaultConfig {
-        applicationId = "io.github.jackwener.dsh"
+        applicationId = "io.github.timhub135.dsh"
         minSdk = 29
         targetSdk = 36
         versionCode = 29

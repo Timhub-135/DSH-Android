@@ -153,7 +153,7 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="io.github.jackwener.dsh.quick"
+            android:taskAffinity="io.github.timhub135.dsh.quick"
             android:theme="@style/Theme.Dsh.Quick"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -171,7 +171,7 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
-                <action android:name="io.github.jackwener.dsh.RUN_TASK" />
+                <action android:name="io.github.timhub135.dsh.RUN_TASK" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

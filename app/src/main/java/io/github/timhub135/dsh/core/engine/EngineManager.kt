@@ -1,0 +1,542 @@
+package io.github.timhub135.dsh.core.engine
+
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.IBinder
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import dagger.Lazy
+import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.timhub135.dsh.core.account.AccountRepository
+import io.github.timhub135.dsh.core.capability.CapabilityHub
+import io.github.timhub135.dsh.core.data.SecretStore
+import io.github.timhub135.dsh.core.data.SettingsRepository
+import io.github.timhub135.dsh.core.provider.ReasoningLevels
+import io.github.timhub135.dsh.core.provider.renderProfilePatch
+import io.github.timhub135.dsh.core.session.SessionModel
+import io.github.timhub135.dsh.core.session.SessionModels
+import io.github.timhub135.dsh.core.session.SessionStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import java.io.File
+import java.util.Locale
+import java.util.TimeZone
+import javax.inject.Inject
+import javax.inject.Singleton
+
+sealed interface EngineState {
+    data object Stopped : EngineState
+    data object Starting : EngineState
+    data object Ready : EngineState
+    data class Failed(val message: String) : EngineState
+}
+
+/** Neither a DeepSeek API key nor a DeepSeek account login: the engine is up, but no model route can authenticate. */
+class NoCredentialsException : Exception("No DeepSeek API key and not signed in to a DeepSeek account")
+class EngineStartException(message: String, val log: String?, cause: Throwable) : Exception(message, cause)
+/** Android refused to start the engine's foreground service from the background (Android 12+). */
+class EngineBackgroundStartException(cause: Throwable) : Exception("foreground service start not allowed from the background", cause)
+
+/**
+ * A model route: provider + model + effort ([effort] is the Effort id for DeepSeek, a level the engine
+ * reported for a third-party model (#46), or "" to send none: the model's own default). The process-wide
+ * one (`initialize`) is the default; each conversation sends its own (`android/session/model`, #53).
+ */
+data class EngineRoute(val provider: String, val model: String, val effort: String) {
+    val isDeepSeek: Boolean get() = provider.startsWith("deepseek-")
+}
+
+/** The selected third-party route could not be initialized (engine fell back to DeepSeek). */
+class RouteUnavailableException(message: String) : Exception(message)
+
+/**
+ * Owns the `:engine` process from the app side: starts it on demand, wires the SDK and capability
+ * channels, and shuts it down after idling. See docs/ENGINE-CONTRACT.md.
+ *
+ * Credentials: an API key (passed as `DEEPSEEK_API_KEY` at process start) or a DeepSeek account
+ * login (held by the engine itself). Precedence mirrors dsh's `initializeDefaultModel`: the account
+ * route `deepseek-account` is used only when no API key is configured; otherwise
+ * `deepseek-official`. The engine starts without either, because account login runs inside it.
+ *
+ * Third-party providers (Settings → 模型服务): the app writes its settings layer
+ * `$DSH_HOME/android/app-layer.patch.yml` (a launcher overlay; llm-service-lite providers, see
+ * core/provider/Providers.kt) before each start and passes each provider key as
+ * `DSH_ANDROID_KEY_<ID>`. Both are read once at process start, so a change to either (the
+ * [profileFingerprint]) restarts the engine when it is idle, like a route change.
+ */
+@Singleton
+class EngineManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val settings: SettingsRepository,
+    private val secrets: SecretStore,
+    private val capabilities: Lazy<CapabilityHub>,
+    private val sessions: Lazy<SessionStore>,
+    private val account: Lazy<AccountRepository>,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.e(TAG, "engine task crashed", e) })
+    private val mutex = Mutex()
+    private val _state = MutableStateFlow<EngineState>(EngineState.Stopped)
+    val state: StateFlow<EngineState> = _state.asStateFlow()
+
+    private var sdk: JsonRpcPeer? = null
+    private var bridge: JsonRpcPeer? = null
+    private var connection: ServiceConnection? = null
+    private var idleJob: Job? = null
+    var startupMillis: Long = 0; private set
+
+    /** Incremented on every engine start; sessions must be resumed once per generation. */
+    @Volatile var generation: Int = 0; private set
+    /**
+     * Highest generation that has been torn down (stopped, crashed or failed to start). Anything a
+     * retired generation still delivers describes a process that no longer exists.
+     */
+    @Volatile var retiredGeneration: Int = 0; private set
+    private val _route = MutableStateFlow<EngineRoute?>(null)
+    /** Route of the running engine (null while stopped). A settings change that differs waits until no run is active. */
+    val route: StateFlow<EngineRoute?> = _route.asStateFlow()
+    private var activeRoute: EngineRoute?
+        get() = _route.value
+        set(v) { _route.value = v }
+    /** Device time zone the running engine was started with (TZ is read once, at process start). */
+    @Volatile private var startedTz: String = TimeZone.getDefault().id
+    /** DSH_ANDROID_LOCALE the running process got (approval texts, account pages, extension labels follow the app language). */
+    @Volatile private var startedLocale: String = Locale.getDefault().toLanguageTag()
+    /** Whether an SDK session was opened in this generation (then a route change needs a restart). */
+    @Volatile private var sessionsOpened = false
+    private var death: CompletableDeferred<Unit>? = null
+    /** Generation we asked to exit; its channel closing is not a crash. */
+    @Volatile private var expectedExit = -1
+    /** Backoff + circuit breaker for unexpected engine exits (see RestartPolicy). */
+    val restarts = RestartPolicy()
+
+    /** The DeepSeek route: the account only without an API key (dsh's `initializeDefaultModel` precedence). */
+    private fun deepSeekRoute(hasKey: Boolean) = if (!hasKey && account.get().signedIn) "deepseek-account" else "deepseek-official"
+
+    /** The default model's route (`initialize`; conversations send their own, [sessionRoute]). */
+    private fun wantedRoute(st: io.github.timhub135.dsh.core.data.Settings, hasKey: Boolean): EngineRoute =
+        SessionModels.route(SessionModels.default(st), st, engineReasoning ?: st.reasoningCatalog, deepSeekRoute(hasKey))
+
+    /** The engine route of one conversation's model (#53; an available one, see SessionModels.resolve). */
+    suspend fun sessionRoute(m: SessionModel): EngineRoute {
+        val st = settings.current()
+        return SessionModels.route(m, st, engineReasoning ?: st.reasoningCatalog, deepSeekRoute(secrets.read() != null))
+    }
+
+    /** web_search needs a DeepSeek credential: the API key, or the account while on the account route. */
+    private fun webSearch(st: io.github.timhub135.dsh.core.data.Settings, hasKey: Boolean) = hasKey || st.choice.isDeepSeek
+
+    private fun profilePatch(st: io.github.timhub135.dsh.core.data.Settings, hasKey: Boolean) = io.github.timhub135.dsh.core.extensions.appendPatchRows(
+        renderProfilePatch(st.providers, webSearch(st, hasKey), io.github.timhub135.dsh.core.provider.appProductToken(io.github.timhub135.dsh.BuildConfig.VERSION_NAME),
+            // Plugins' own sessions take the default (the stored levels: the patch must not depend on what this process reported).
+            defaultModel = SessionModels.route(SessionModels.default(st), st, st.reasoningCatalog, deepSeekRoute(hasKey))),
+        io.github.timhub135.dsh.core.extensions.ExtensionsEngineInputs.patchRows(st.mcpServers, File(context.filesDir, "dsh-home").path))
+
+    /** Provider keys and secret header values, plus the extensions' environment (plugin registries, MCP header secrets): env var name → value. */
+    private fun providerKeys(st: io.github.timhub135.dsh.core.data.Settings): Map<String, String> {
+        val enabled = st.providers.filter { it.enabled }
+        val keys = enabled.filter { it.hasKey }.mapNotNull { p -> secrets.read(p.secretName)?.let { p.keyEnv to it } }
+        val headers = enabled.flatMap { p -> p.headers.filter { it.secret }.mapNotNull { h -> secrets.read(p.headerSecretName(h.name))?.let { p.headerEnv(h.name) to it } } }
+        return (keys + headers).toMap() + io.github.timhub135.dsh.core.extensions.ExtensionsEngineInputs.env(st.pluginRegistry, st.pluginRegistryCustom, st.mcpServers, secrets::read)
+    }
+
+    /** What a running process has baked in at start: the patch layer and the provider keys (hashed, never stored). */
+    private fun profileFingerprint(st: io.github.timhub135.dsh.core.data.Settings, hasKey: Boolean): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        md.update(profilePatch(st, hasKey).toByteArray())
+        providerKeys(st).toSortedMap().forEach { (k, v) -> md.update("$k=$v\n".toByteArray()) }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+    @Volatile private var activeFingerprint: String? = null
+    /** Reasoning levels the running engine reported (null until it answers); [wantedRoute] prefers them to the stored copy. */
+    @Volatile private var engineReasoning: Map<String, io.github.timhub135.dsh.core.provider.ModelReasoning>? = null
+    /** A third-party route that failed to initialize in this generation, and why. */
+    @Volatile private var failedRoute: Pair<EngineRoute, String>? = null
+
+    /**
+     * Returns a ready SDK peer for prompts, starting the engine if needed. The route is
+     * process-wide (`initialize`): a changed model / effort / credential route re-initializes an
+     * engine that has not opened sessions yet, or restarts an idle one, before the next prompt.
+     * While any run is active (including the caller's own, when it steers a running session) the
+     * old route is kept: restarting would kill those turns.
+     * Throws [NoCredentialsException] (with the engine left running, so the user can sign in)
+     * when there is neither an API key nor an account login.
+     */
+    /** The running engine's channel, without starting one (null while stopped or starting). */
+    fun sdkIfReady(): JsonRpcPeer? = sdk?.takeIf { state.value == EngineState.Ready }
+
+    suspend fun sdk(): JsonRpcPeer = sdk(null)
+
+    /**
+     * [sdk] for a prompt of a conversation running on [route] (its own model, #53; null = the default):
+     * the credential / failed-route checks apply to that route, not to the default.
+     */
+    suspend fun sdk(route: EngineRoute?): JsonRpcPeer = mutex.withLock {
+        val st = settings.current()
+        val hasKey = secrets.read() != null
+        val peer = sdk?.takeIf { _state.value == EngineState.Ready }?.let { peer ->
+            val want = wantedRoute(st, hasKey)
+            when {
+                sessions.get().hasEngineRuns() -> peer
+                // The device time zone changed since start: a new process picks it up (when idle, like a route change).
+                TimeZone.getDefault().id != startedTz -> { Log.i(TAG, "time zone changed: restarting engine"); shutdownLocked(); null }
+                // The app language changed (设置 → 语言, or the system's per-app language): same, when idle.
+                Locale.getDefault().toLanguageTag() != startedLocale -> { Log.i(TAG, "language changed: restarting engine"); shutdownLocked(); null }
+                // Providers / keys / web search changed: only a new process reads them.
+                profileFingerprint(st, hasKey) != activeFingerprint -> { Log.i(TAG, "model providers changed: restarting engine"); shutdownLocked(); null }
+                want == activeRoute -> peer
+                // This process already failed that route with the same configuration: report it (below) without churning.
+                want == failedRoute?.first -> peer
+                !sessionsOpened -> runCatching { initialize(peer, want); peer }.getOrElse {
+                    Log.w(TAG, "re-initialize failed; restarting", it); shutdownLocked(); null
+                }
+                else -> { Log.i(TAG, "route changed: restarting engine"); shutdownLocked(); null }
+            }
+        } ?: startLocked(st, hasKey)
+        val want = wantedRoute(st, hasKey)
+        val deepSeek = route?.isDeepSeek ?: st.choice.isDeepSeek
+        // The default route failed `initialize` (the engine runs on DeepSeek): prompts that need it say why.
+        val unavailable = if (route == null) want != activeRoute && !deepSeek else route == failedRoute?.first
+        if (unavailable && !sessions.get().hasEngineRuns()) {
+            val target = route ?: want
+            throw RouteUnavailableException("${st.providers.firstOrNull { it.id == target.provider }?.name ?: target.provider} / ${target.model}: ${failedRoute?.second ?: "unavailable"}")
+        }
+        if (deepSeek && !hasKey && !account.get().signedIn) throw NoCredentialsException()
+        peer
+    }
+
+    /** A ready peer for control traffic (account login, profile); never restarts a running engine. */
+    suspend fun control(): JsonRpcPeer = mutex.withLock {
+        sdk?.takeIf { _state.value == EngineState.Ready } ?: startLocked(settings.current(), secrets.read() != null)
+    }
+
+    /** SessionStore is about to open (create/resume) an SDK session in the current generation. */
+    fun markSessionOpened() { sessionsOpened = true }
+
+    private suspend fun initialize(peer: JsonRpcPeer, route: EngineRoute) {
+        withTimeout(90_000) {
+            peer.request("initialize", buildJsonObject {
+                put("cwd", File(context.filesDir, "home").path)
+                put("provider", route.provider)
+                put("model", route.model)
+                if (route.effort.isNotEmpty()) put("reasoningEffort", route.effort)
+                put("approvalRequests", true)
+                putJsonObject("capabilities") { put("userQuestions", true) }
+            })
+        }
+        activeRoute = route
+        Log.i(TAG, "SDK route ${route.provider}/${route.model}/${route.effort}")
+    }
+
+    /**
+     * Ask the engine for every third-party model's reasoning levels (`android/models/reasoning`,
+     * plugin-guard; #46) and store them: the composer lists them, and [wantedRoute] sends a saved
+     * level only while the model offers it. Unanswered (timeout, error) keeps the stored catalog.
+     */
+    private suspend fun refreshReasoning(peer: JsonRpcPeer, st: io.github.timhub135.dsh.core.data.Settings) {
+        val routes = st.providers.filter { it.enabled && it.models.isNotEmpty() && it.baseUrl.isNotBlank() }.flatMap { p -> p.models.map { p to it } }
+        if (routes.isEmpty()) return
+        val result = runCatching {
+            withTimeout(30_000) {
+                peer.request("android/models/reasoning", buildJsonObject {
+                    putJsonArray("models") { routes.forEach { (p, m) -> addJsonObject { put("provider", p.id); put("model", m) } } }
+                })
+            }
+        }.onFailure { Log.w(TAG, "android/models/reasoning unavailable", it) }.getOrNull() ?: return
+        val catalog = ReasoningLevels.parse(result) { provider, model -> st.providers.firstOrNull { it.id == provider }?.limits?.get(model)?.reasoning }
+        engineReasoning = catalog
+        runCatching { settings.setReasoningCatalog(catalog) }.onFailure { Log.w(TAG, "could not store reasoning levels", it) }
+    }
+
+    private suspend fun startLocked(st: io.github.timhub135.dsh.core.data.Settings, hasKey: Boolean): JsonRpcPeer {
+        _state.value = EngineState.Starting
+        val t0 = System.currentTimeMillis()
+        val gen = generation + 1
+        try {
+            var service = bind(gen, st.engineKeepAlive)
+            if (runCatching { service.isRunning() }.getOrDefault(false)) {
+                // A previous :main died while :engine survived; Node runs once per process, so replace it.
+                Log.w(TAG, "engine process already ran Node; replacing it")
+                val dying = death
+                connection?.let { runCatching { context.unbindService(it) } }
+                connection = null
+                killEngineProcess()
+                withTimeoutOrNull(5_000) { dying?.await() }
+                service = bind(gen, st.engineKeepAlive)
+            }
+            val tBound = System.currentTimeMillis()
+            val fingerprint = profileFingerprint(st, hasKey)
+            withContext(Dispatchers.IO) { writeProfilePatch(profilePatch(st, hasKey)) }
+            val handles = withContext(Dispatchers.IO) { service.start(environment(secrets.read(), providerKeys(st))) }
+            val sdkIn = ParcelFileDescriptor.AutoCloseOutputStream(handles.pfd("sdk_in"))
+            val sdkOut = ParcelFileDescriptor.AutoCloseInputStream(handles.pfd("sdk_out"))
+            val bridgeFd = handles.pfd("bridge")
+            val peer = JsonRpcPeer("sdk", sdkOut, sdkIn, scope,
+                onRequest = { m, p -> sessions.get().onServerRequest(m, p) },
+                onNotification = { m, p -> if (m.startsWith("account.")) account.get().onNotification(m, p) else sessions.get().onNotification(m, p, gen) },
+                onClosed = { onEngineGone(gen) })
+            val bridgePeer = JsonRpcPeer("bridge",
+                ParcelFileDescriptor.AutoCloseInputStream(bridgeFd),
+                ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(bridgeFd.fileDescriptor)),
+                scope,
+                onRequest = { m, p -> capabilities.get().onBridgeRequest(m, p) },
+                onNotification = { m, p -> if (m == "budget/exceeded") sessions.get().onBudgetExceeded(p) else capabilities.get().onBridgeNotification(m, p) },
+                onClosed = {})
+            peer.start(); bridgePeer.start()
+            sessionsOpened = false
+            // The account decides the route when there is no key; read it before `initialize`.
+            runCatching { withTimeout(90_000) { peer.request("account/state") } }
+                .onSuccess { account.get().onEngineView(it) }
+                .onFailure { Log.w(TAG, "account/state unavailable", it) }
+            // Before `initialize`: the route's reasoning level must be one this engine accepts.
+            engineReasoning = null
+            refreshReasoning(peer, st)
+            val tBooted = System.currentTimeMillis()
+            val want = wantedRoute(st, hasKey)
+            failedRoute = null
+            try {
+                initialize(peer, want)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException || st.choice.isDeepSeek) throw e
+                // A broken third-party route must not take the engine (account login, DeepSeek) down.
+                Log.w(TAG, "third-party route ${want.provider}/${want.model} failed; falling back to DeepSeek", e)
+                failedRoute = want to (e.message ?: e.javaClass.simpleName)
+                initialize(peer, EngineRoute(deepSeekRoute(hasKey), io.github.timhub135.dsh.core.provider.DEFAULT_DEEPSEEK_MODEL, st.effort.id))
+            }
+            activeFingerprint = fingerprint
+            sdk = peer; bridge = bridgePeer
+            generation = gen
+            capabilities.get().attach(bridgePeer)
+            bridgePeer.notify("budget/update", buildJsonObject {
+                if (st.sessionTokenLimit > 0) put("sessionTokenLimit", st.sessionTokenLimit)
+                if (st.dailyTokenLimit > 0) put("dailyTokenLimit", st.dailyTokenLimit)
+            })
+            startupMillis = System.currentTimeMillis() - t0
+            _state.value = EngineState.Ready
+            // bind = :engine process + service up (Android); boot = Node + dsh until account/state answers.
+            Log.i(TAG, "engine gen $gen ready in ${startupMillis}ms (bind ${tBound - t0}, boot ${tBooted - tBound}, initialize ${System.currentTimeMillis() - tBooted})")
+            scope.launch { delay(RestartPolicy.STABLE_MS); if (generation == gen && sdk === peer) restarts.recordHealthy() }
+            return peer
+        } catch (e: Exception) {
+            Log.e(TAG, "engine start failed", e)
+            if (e is EngineBackgroundStartException) { teardown(gen); throw e }
+            restarts.recordFailure()
+            val detail = engineLogTail()
+            teardown(gen)
+            killEngineProcess()
+            _state.value = EngineState.Failed(listOfNotNull(e.message ?: e.javaClass.simpleName, detail).joinToString("\n"))
+            throw EngineStartException(e.message ?: e.javaClass.simpleName, detail, e)
+        }
+    }
+
+    private fun engineLogTail(): String? = runCatching {
+        EngineDiagnostics.logTail(context, 600)
+    }.getOrNull()
+
+    /** Called when there is no running work; stops the engine after [IDLE_MS] (never with 引擎常驻). */
+    fun scheduleIdleShutdown() {
+        idleJob?.cancel()
+        idleJob = scope.launch {
+            delay(IDLE_MS)
+            if (!EngineKeepAlive.mayStopWhenIdle(settings.current().engineKeepAlive, sessions.get().hasRunning(), account.get().busy)) return@launch
+            stop()
+        }
+    }
+
+    /**
+     * 引擎常驻 ([EngineKeepAlive]): starts the engine when the setting is on and it is not running
+     * (app start, boot, app update, the setting turned on, after a stop or an unexpected exit).
+     * Nothing while the crash-loop breaker is open; then (or with the setting off) a [restored]
+     * service, one Android re-created without an engine in it, is stopped instead.
+     */
+    fun keepAlive(restored: Boolean = false) {
+        scope.launch {
+            val s = _state.value
+            if (s != EngineState.Stopped && s !is EngineState.Failed) return@launch
+            if (!settings.current().engineKeepAlive || restarts.open) {
+                // Under the lock: a start in progress must not lose its service.
+                if (restored) mutex.withLock { if (_state.value == EngineState.Stopped && connection == null) context.stopService(Intent(context, EngineService::class.java)) }
+                return@launch
+            }
+            Log.i(TAG, "keep-alive: starting the engine")
+            runCatching { control() }.onFailure { Log.w(TAG, "keep-alive start failed", it) }
+        }
+    }
+
+    /** The 引擎常驻 switch: on starts the engine now; off lets it stop after the usual idle time. */
+    suspend fun setKeepAlive(on: Boolean) {
+        settings.setEngineKeepAlive(on)
+        if (on) { idleJob?.cancel(); keepAlive() } else if (_state.value == EngineState.Ready) scheduleIdleShutdown()
+    }
+
+    fun cancelIdleShutdown() { idleJob?.cancel() }
+
+    /** Hard stop: the SDK has no cancel method, so stopping a turn means stopping the process. */
+    suspend fun stop() { mutex.withLock { shutdownLocked() }; keepAlive() }
+
+    /** Asks Node to exit and waits for the `:engine` process to die so the next start gets a fresh one. */
+    private suspend fun shutdownLocked() {
+        val dying = death
+        expectedExit = generation
+        runCatching { withTimeout(3_000) { sdk?.request("shutdown") } }
+        teardown(generation)
+        if (dying != null && withTimeoutOrNull(5_000) { dying.await() } == null) killEngineProcess()
+    }
+
+    /** Last resort for a wedged `:engine` process (Node can start only once per process). */
+    private fun killEngineProcess() {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        am.runningAppProcesses?.filter { it.processName == context.packageName + ":engine" }?.forEach {
+            Log.w(TAG, "killing engine process ${it.pid}")
+            android.os.Process.killProcess(it.pid)
+        }
+    }
+
+    fun notifyCapabilitiesChanged() {
+        scope.launch { runCatching { bridge?.notify("capability/changed") } }
+    }
+
+    /**
+     * The `:engine` process of [gen] went away unexpectedly. Three signals report it (the SDK
+     * pipe's EOF, the binder death link, onServiceDisconnected) on different threads; only the
+     * first counts, so one crash is one RestartPolicy failure and one onEngineLost.
+     */
+    private fun onEngineGone(gen: Int) {
+        val peer: JsonRpcPeer
+        val retryInMs: Long?
+        synchronized(this) {
+            peer = sdk ?: return
+            if (gen != generation || gen == expectedExit) return
+            Log.w(TAG, "engine gen $gen channel closed")
+            teardown(gen)
+            retryInMs = restarts.recordFailure()
+        }
+        scope.launch {
+            // A binder-death signal can beat the pipe's EOF: let the dead channel's buffered tail
+            // (events the process wrote before it died) reach SessionStore before the loss does.
+            withTimeoutOrNull(2_000) { peer.closed.await() }
+            sessions.get().onEngineLost(gen, retryInMs)
+            // 引擎常驻: come back after the same backoff even when no conversation was running.
+            if (retryInMs != null) scope.launch { delay(retryInMs); keepAlive() }
+            delay(2_000) // let the system record the exit reason
+            EngineDiagnostics.collectExitInfo(context)
+        }
+    }
+
+    private fun teardown(retire: Int) {
+        retiredGeneration = maxOf(retiredGeneration, retire)
+        // Every request this generation is still serving (approval cards, device tool calls, unlock
+        // waits) is void now: cancel them so nothing acts later or answers into a dead pipe (EngineCalls).
+        val cause = EngineCallCancelled("engine generation $retire ended")
+        sdk?.cancelRequests(cause); bridge?.cancelRequests(cause)
+        sdk = null; bridge = null
+        activeRoute = null
+        account.get().onEngineStopped()
+        capabilities.get().detach()
+        connection?.let { runCatching { context.unbindService(it) } }
+        connection = null
+        context.stopService(Intent(context, EngineService::class.java))
+        _state.value = EngineState.Stopped
+    }
+
+    private suspend fun bind(gen: Int, keepAlive: Boolean): IEngineService {
+        val deferred = CompletableDeferred<IEngineService>()
+        val died = CompletableDeferred<Unit>().also { death = it }
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder) {
+                binder.linkToDeath({ died.complete(Unit); onEngineGone(gen) }, 0)
+                deferred.complete(IEngineService.Stub.asInterface(binder))
+            }
+            override fun onServiceDisconnected(name: ComponentName?) { died.complete(Unit); onEngineGone(gen) }
+        }
+        val intent = Intent(context, EngineService::class.java)
+        try {
+            // The extra picks the service's restart mode (EngineKeepAlive.startMode); bindService ignores it.
+            context.startForegroundService(Intent(intent).putExtra(EngineKeepAlive.EXTRA_KEEP_ALIVE, keepAlive))
+        } catch (e: IllegalStateException) {
+            // ForegroundServiceStartNotAllowedException (API 31+) extends IllegalStateException; older
+            // releases throw a plain IllegalStateException for background starts.
+            death = null
+            throw EngineBackgroundStartException(e)
+        }
+        // No BIND_AUTO_CREATE: the started (START_NOT_STICKY) service alone keeps :engine alive. An
+        // auto-create binding makes ActivityManager schedule its own restart of a crashed service
+        // (1 s, then ×4 per crash, ≥10 s apart); while that restart is pending every new
+        // startForegroundService/bindService waits for it, which delayed AC8 recovery by 10–25 s.
+        // Restarts are RestartPolicy's job, so a crash must leave nothing scheduled in the system.
+        // 引擎常驻 is the exception: there the service is START_STICKY, so Android re-creates it even
+        // when :main is gone too (EngineService then asks :main to start Node again).
+        check(context.bindService(intent, conn, Context.BIND_IMPORTANT)) { "bind failed" }
+        connection = conn
+        return withTimeout(20_000) { deferred.await() }
+    }
+
+    /**
+     * The app's settings layer (PLUGINS-CONTRACT §1): `$DSH_HOME/android/app-layer.patch.yml`, which the engine entry
+     * passes to dsh as a `--patch` overlay above every other layer. The profile's own `cordis.patch.yml` belongs to dsh
+     * (plugin manager, config editor). Written atomically, only when it changed.
+     */
+    private fun writeProfilePatch(text: String) {
+        val dir = File(context.filesDir, "dsh-home/android").apply { mkdirs() }
+        val f = File(dir, "app-layer.patch.yml")
+        if (f.exists() && f.readText() == text) return
+        val tmp = File(dir, "app-layer.patch.yml.tmp")
+        tmp.writeText(text)
+        check(tmp.renameTo(f)) { "could not write ${f.path}" }
+    }
+
+    private fun environment(apiKey: String?, providerKeys: Map<String, String>) = Bundle().apply {
+        startedTz = TimeZone.getDefault().id
+        startedLocale = Locale.getDefault().toLanguageTag()
+        val files = context.filesDir
+        putString("DSH_HOME", File(files, "dsh-home").path)
+        putString("HOME", File(files, "home").path)
+        putString("TMPDIR", File(context.cacheDir, "tmp").path)
+        putString("SHELL", "/system/bin/sh")
+        putString("PATH", "${File(files, "bin").path}:/system/bin:/system/xbin")
+        putString("DSH_NATIVE_DIR", context.applicationInfo.nativeLibraryDir)
+        // The node launcher for engine children: bundled pnpm, npm stdio MCP servers (PLUGINS-CONTRACT §1).
+        putString("DSH_NODE_BIN", File(context.applicationInfo.nativeLibraryDir, "libdshnode.so").path)
+        apiKey?.let { putString("DEEPSEEK_API_KEY", it) }
+        providerKeys.forEach { (env, key) -> putString(env, key) }
+        putString("DSH_ANDROID_PACKAGE", context.packageName)
+        putString("DSH_ANDROID_LOCALE", startedLocale)
+        // Node otherwise runs in UTC (local time for the model, daily budget at local midnight).
+        // DSH_ANDROID_TZ lets the bundle's preload re-apply it where AT_SECURE makes Node drop TZ.
+        putString("TZ", startedTz)
+        putString("DSH_ANDROID_TZ", startedTz)
+        putString("NODE_OPTIONS", "--max-old-space-size=768")
+        putString("DSH_TELEMETRY_DISABLED", "1")
+        putString("NARB_DISABLE_NATIVE_CACHE", "1")
+        io.github.timhub135.dsh.core.extensions.SafeModeRequest.take(context, restarts.open)?.let { putString(io.github.timhub135.dsh.core.extensions.SafeModeRequest.ENV, it) }
+    }
+
+    private fun Bundle.pfd(key: String): ParcelFileDescriptor =
+        @Suppress("DEPRECATION") (getParcelable<ParcelFileDescriptor>(key) ?: error("missing $key"))
+
+    private companion object {
+        const val TAG = "EngineManager"
+        const val IDLE_MS = 5 * 60_000L
+    }
+}

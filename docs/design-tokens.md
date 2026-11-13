@@ -1,6 +1,6 @@
 # DSH Web design tokens -> Android Compose / M3
 
-Extracted from the DeepSeek Harness source. Paths below are relative to the dsh repository root. The app's implementation is in `app/src/main/java/io/github/jackwener/dsh/core/designsystem/` (§8).
+Extracted from the DeepSeek Harness source. Paths below are relative to the dsh repository root. The app's implementation is in `app/src/main/java/io/github/timhub135/dsh/core/designsystem/` (§8).
 Theme switch on web: `body` = light, `body[data-ds-dark-theme]` = dark. Feature code only consumes `--dsw-alias-*`; the static scale is private to the theme.
 
 Key fact for porting: the **brand primary is monochrome** (near-black in light, near-white in dark). The DeepSeek blue (`deepseek-500` #4176E6) is the *accent* used for links, info buttons, focus rings, "business" state and the selected sidebar item, not for primary buttons.

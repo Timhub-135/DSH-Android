@@ -269,7 +269,7 @@ stage_check() {
   for sym in _ZN4node5StartEiPPc _ZNK4node14PrincipalRealm22builtin_module_requireEv napi_create_function; do
     grep -q " $sym\$" <<<"$syms" && echo "libnode.so exports $sym" || { echo "libnode.so MISSING $sym"; bad=1; }
   done
-  for sym in Java_io_github_jackwener_dsh_engine_NodeRuntime_nativeStart JNI_OnLoad; do
+  for sym in Java_io_github_timhub135_dsh_engine_NodeRuntime_nativeStart JNI_OnLoad; do
     llvm-nm -D --defined-only "$OUT/libdshengine.so" | grep -q " $sym\$" && echo "libdshengine.so exports $sym" || { echo "libdshengine.so MISSING $sym"; bad=1; }
   done
   while IFS= read -r f; do

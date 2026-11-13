@@ -1,6 +1,6 @@
 // libdshengine.so — JNI entry point that runs Node.js (libnode.so) in-process.
 //
-// Java side (io.github.jackwener.dsh.engine.NodeRuntime):
+// Java side (io.github.timhub135.dsh.engine.NodeRuntime):
 //   static native int nativeStart(String[] args, int stdinFd, int stdoutFd, int stderrFd);
 //
 // nativeStart() blocks until the Node event loop exits and returns the exit
@@ -44,7 +44,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_github_jackwener_dsh_engine_NodeRuntime_nativeStart(JNIEnv* env, jclass /*clazz*/,
+Java_io_github_timhub135_dsh_engine_NodeRuntime_nativeStart(JNIEnv* env, jclass /*clazz*/,
                                                            jobjectArray args, jint stdinFd,
                                                            jint stdoutFd, jint stderrFd) {
   if (g_started.exchange(true)) {

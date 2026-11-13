@@ -2,7 +2,7 @@
 
 DSH-Android 把 DeepSeek Harness（dsh）跑在手机上：Node 24 编译成 bionic 共享库 `libnode.so`，通过 JNI 在独立的 `:engine` 进程里启动 dsh；设备能力全部由 Kotlin 实现，经一条私有 socket 暴露给 dsh。协议细节见 [ENGINE-CONTRACT.md](ENGINE-CONTRACT.md)，引擎包见 [js/README.md](../js/README.md)，原生构建见 [native/README.md](../native/README.md)。
 
-代码路径相对 `app/src/main/java/io/github/jackwener/dsh/`。
+代码路径相对 `app/src/main/java/io/github/timhub135/dsh/`。
 
 ## 进程模型
 
@@ -128,7 +128,7 @@ Shizuku 用户服务（shell uid，可选）：ShellUserService
 - 系统助手：`DshVoiceInteractionService` 从 `AssistStructure` 取得当前屏幕内容（长按电源键或手势唤起）。DSH 没有语音识别，`DshRecognitionService` 只是为了能被选为助手。
 - 快捷设置磁贴 `QuickTileService`。
 - 分享：`SEND`/`SEND_MULTIPLE`，文字、图片和文件放进输入框，由用户确认后发送。
-- `io.github.jackwener.dsh.RUN_TASK`（extra `task`）：受“允许其他 App 调用”开关控制，默认关闭，关闭时提示并拒绝；不附带屏幕内容。
+- `io.github.timhub135.dsh.RUN_TASK`（extra `task`）：受“允许其他 App 调用”开关控制，默认关闭，关闭时提示并拒绝；不附带屏幕内容。
 
 面板顶部显示“当前页面”标签，可以取消附带。
 

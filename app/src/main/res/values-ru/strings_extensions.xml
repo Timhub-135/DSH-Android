@@ -225,8 +225,8 @@
     <string name="ext_mcp_kind_remote">Удалённый</string>
     <string name="ext_mcp_kind_npm">Локальный · npm</string>
     <string name="ext_mcp_name_hint">Для различия его инструментов, например github</string>
-    <string name="ext_indexes_desc">Индекс — это список плагинов (формат индекса магазина плагинов dsh, версия 1). Отборный индекс поддерживает DSH-Android; прежде чем добавлять чужой индекс, убедись, что доверяешь ему.</string>
-    <string name="ext_indexes_curated">Отборный DSH-Android</string>
+    <string name="ext_indexes_desc">Индекс — это список плагинов (формат индекса магазина плагинов dsh, версия 1). Отборный индекс поддерживает Timhub; прежде чем добавлять чужой индекс, убедись, что доверяешь ему.</string>
+    <string name="ext_indexes_curated">Отборный Timhub</string>
     <string name="ext_indexes_add">Добавить</string>
     <string name="ext_indexes_remove">Убрать</string>
     <string name="ext_indexes_restore">Восстановить отборный индекс</string>

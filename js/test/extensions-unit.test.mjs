@@ -337,10 +337,10 @@ test('errors: manager results become UserErrors', () => {
 
 // ── index sources: mirrors, fallback, memory, migration ─────────────────────
 
-test('index URLs: the curated index moved to jackwener/DSH-Android; stored lists are migrated', () => {
-  assert.equal(CURATED_INDEX, 'https://cdn.jsdelivr.net/gh/jackwener/DSH-Android@main/plugins/index.json')
+test('index URLs: the curated index moved to Timhub-135/DSH-Android; stored lists are migrated', () => {
+  assert.equal(CURATED_INDEX, 'https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json')
   assert.deepEqual(DEFAULT_INDEXES, [CURATED_INDEX])
-  const old = 'https://cdn.jsdelivr.net/gh/jackwener/DeepseekHarness-Android@main/plugins/index.json'
+  const old = 'https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json'
   const other = 'https://example.com/index.json'
   assert.deepEqual(migrateIndexes([other, old]), { urls: [other, CURATED_INDEX], changed: true })
   assert.deepEqual(migrateIndexes([old, CURATED_INDEX]), { urls: [CURATED_INDEX], changed: true })
@@ -455,11 +455,11 @@ test('fetchMirrored: a GitHub-hosted index falls over from a dead jsDelivr to th
   const env = { DSH_ANDROID_JSDELIVR: `${srv.stuckBase}/jsd`, DSH_ANDROID_GITHUB_RAW: `${srv.okBase}/raw` }
   usePreferences({}, () => {})
   try {
-    const url = `${env.DSH_ANDROID_JSDELIVR}/gh/jackwener/DSH-Android@main/plugins/index.json`
-    assert.deepEqual(sourcesFor(url, env).urls, [url, `${env.DSH_ANDROID_GITHUB_RAW}/jackwener/DSH-Android/main/plugins/index.json`])
+    const url = `${env.DSH_ANDROID_JSDELIVR}/gh/Timhub-135/DSH-Android@main/plugins/index.json`
+    assert.deepEqual(sourcesFor(url, env).urls, [url, `${env.DSH_ANDROID_GITHUB_RAW}/Timhub-135/DSH-Android/main/plugins/index.json`])
     // the market's own init: redirect: 'error' and its overall signal pass through
     const r = await fetchMirrored(url, { env, headerTimeoutMs: 300, staggerMs: 5000, init: { redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000) } })
-    assert.equal(r.url, `${env.DSH_ANDROID_GITHUB_RAW}/jackwener/DSH-Android/main/plugins/index.json`)
+    assert.equal(r.url, `${env.DSH_ANDROID_GITHUB_RAW}/Timhub-135/DSH-Android/main/plugins/index.json`)
     assert.equal(await r.response.text(), doc)
     assert.deepEqual(preferences(), { github: srv.okBase })
     // the caller's abort wins over pending sources

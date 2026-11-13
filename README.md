@@ -8,7 +8,7 @@
 
 在安卓手机上运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）：让它操作 App、整理文件、修改系统设置，或者自动执行任务。
 
-[![Release](https://img.shields.io/github/v/release/jackwener/DSH-Android?style=flat-square&color=4D6BFE&label=release)](../../releases/latest)
+[![Release](https://img.shields.io/github/v/release/Timhub-135/DSH-Android?style=flat-square&color=4D6BFE&label=release)](../../releases/latest)
 ![Android](https://img.shields.io/badge/Android-10%2B-34A853?style=flat-square&logo=android&logoColor=white)
 ![ABI](https://img.shields.io/badge/ABI-arm64--v8a-555?style=flat-square)
 ![Engine](https://img.shields.io/badge/engine-dsh%200.2.1%20%C2%B7%20Node%2024-4D6BFE?style=flat-square)
