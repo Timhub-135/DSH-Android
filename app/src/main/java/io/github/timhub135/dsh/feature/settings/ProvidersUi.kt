@@ -389,7 +389,7 @@ private fun ProviderEditor(vm: SettingsViewModel, existing: ProviderConfig?, pre
             if (NetDiagnose.isOnDeviceAddress(baseUrl)) Text(stringResource(R.string.prov_local_warning), style = DshType.xxs12, color = c.amber)
             preset.localHint?.let { Text(stringResource(it), style = DshType.xxs12, color = c.labelTertiary) }
             Text(stringResource(if (preset.keyOptional) R.string.prov_key_optional else R.string.api_key_label), style = DshType.xs13m, color = c.labelSecondary)
-            DInput(key, { key = it }, placeholder = if (existing?.hasKey == true) stringResource(R.string.prov_key_saved) else "sk-…", secret = true, keyboardType = KeyboardType.Password)
+            DInput(key, { key = it }, placeholder = if (existing?.hasKey == true) stringResource(R.string.prov_key_saved) else "sk-…", secret = true, keyboardType = KeyboardType.Ascii)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val keysUrl = preset.keysUrl
                 if (keysUrl != null) Text(stringResource(R.string.prov_get_key), Modifier.weight(1f).clip(Radius.sm).clickable {
