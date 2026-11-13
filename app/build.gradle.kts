@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.timhub135.dsh"
         minSdk = 29
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.3.11"
+        versionCode = 30
+        versionName = "0.3.12-fork.1"
         ndk { abiFilters += "arm64-v8a" }
     }
 
