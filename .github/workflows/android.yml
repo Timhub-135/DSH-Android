@@ -98,6 +98,8 @@ jobs:
           path: toolchains/out
 
       - name: fetch Node native libs (fork mirror only)
+        env:
+          WORK: ${{ github.workspace }}/toolchains
         run: GH_REPO=Timhub-135/DSH-Android native/prebuilt.sh fetch
 
       - name: build engine bundle (with Python runtime)
@@ -108,6 +110,28 @@ jobs:
 
       - name: python runtime static check (post-download)
         run: native/python/check.sh toolchains/out
+
+      - name: verify APK payload (Node + Python runtimes present)
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          echo "APK size: $(stat -c%s "$apk") bytes"
+          python3 - "$apk" <<'PY'
+          import io, os, sys, zipfile
+          apk = sys.argv[1]
+          z = zipfile.ZipFile(apk)
+          names = set(z.namelist())
+          need = ["lib/arm64-v8a/libnode.so", "lib/arm64-v8a/libdshnode.so",
+                  "lib/arm64-v8a/libdshengine.so", "lib/arm64-v8a/librg.so",
+                  "lib/arm64-v8a/libdshpython.so", "lib/arm64-v8a/libpython3.14.so",
+                  "assets/engine.zip"]
+          missing = [n for n in need if n not in names]
+          assert not missing, f"APK missing: {missing}"
+          e = zipfile.ZipFile(io.BytesIO(z.read("assets/engine.zip")))
+          en = set(e.namelist())
+          for n in ["python/ext-map.txt", "python/lib/python3.14/os.py"]:
+              assert n in en, f"engine.zip missing {n}"
+          print(f"APK payload OK: {len(names)} entries, engine.zip {len(en)} entries, size {os.path.getsize(apk)}")
+          PY
 
       - name: restore keystore (p12 -> jks, values from secrets only)
         run: |
