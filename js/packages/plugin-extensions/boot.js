@@ -119,10 +119,10 @@ export function settleSafeMode(state, installed) {
 }
 
 /** The curated DSH-Android plugin index (format 1, dsh's plugin market). */
-export const CURATED_INDEX = 'https://cdn.jsdelivr.net/gh/jackwener/DSH-Android@main/plugins/index.json'
+export const CURATED_INDEX = 'https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json'
 export const DEFAULT_INDEXES = Object.freeze([CURATED_INDEX])
-/** Former addresses of the curated index (the repository was jackwener/DeepseekHarness-Android). */
-export const LEGACY_CURATED_INDEXES = Object.freeze(['https://cdn.jsdelivr.net/gh/jackwener/DeepseekHarness-Android@main/plugins/index.json'])
+/** Former addresses of the curated index (the repository was Timhub-135/DSH-Android). */
+export const LEGACY_CURATED_INDEXES = Object.freeze(['https://cdn.jsdelivr.net/gh/Timhub-135/DSH-Android@main/plugins/index.json'])
 
 /**
  * A stored index list with former curated addresses replaced by the current one (order kept,

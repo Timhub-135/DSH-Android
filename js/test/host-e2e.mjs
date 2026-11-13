@@ -404,7 +404,7 @@ async function accountEngine(tag, extraArgs = []) {
   mkdirSync(home, { recursive: true })
   const env = baseEnv(dshHome, home)
   env.DSH_ANDROID_LOCALE = 'zh-CN'
-  env.DSH_ANDROID_PACKAGE = 'io.github.jackwener.dsh'
+  env.DSH_ANDROID_PACKAGE = 'io.github.timhub135.dsh'
   const eng = startEngine(env, false, extraArgs)
   const notes = []
   const sdk = rpcPeer(eng.child.stdout, eng.child.stdin, `sdk-${tag}`, () => ({ outcome: 'rejected' }), (method, params) => {
@@ -452,7 +452,7 @@ if (PHASES.has('C')) {
     const cb1 = await httpGet(`${redirect1}?code=c1&state=${encodeURIComponent(state1)}`)
     await waitFor(() => phaseOf(notes) === 'failed', 15_000, 'failed phase')
     check('C: rejected exchange → phase failed; Custom Tab gets the local failure page with the app link',
-      cb1.status === 200 && cb1.body.includes('登录失败') && cb1.body.includes('intent://account/login?result=failed#Intent;scheme=dsh-android;package=io.github.jackwener.dsh;end'),
+      cb1.status === 200 && cb1.body.includes('登录失败') && cb1.body.includes('intent://account/login?result=failed#Intent;scheme=dsh-android;package=io.github.timhub135.dsh;end'),
       `status=${cb1.status} errorCode=${notes.findLast(n => n.params?.view?.attempt?.errorCode)?.params.view.attempt.errorCode}`)
     check('C: account.callback notification reports the failure', notes.some(n => n.method === 'account.callback' && n.params?.result === 'failed'))
 

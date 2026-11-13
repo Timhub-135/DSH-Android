@@ -27,8 +27,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGE = "io.github.jackwener.dsh"
-DEFAULT_REPO = "jackwener/DSH-Android"
+PACKAGE = "io.github.timhub135.dsh"
+DEFAULT_REPO = "Timhub-135/DSH-Android"
 
 
 def die(msg):

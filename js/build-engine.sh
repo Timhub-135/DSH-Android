@@ -9,7 +9,8 @@
 #
 # Env overrides: OUT_DIR (default <agent>/toolchains/out/engine),
 #                WORK_DIR (default <agent>/toolchains/out/engine-build),
-#                TMPDIR (default <agent>/toolchains/tmp; /tmp is not used).
+#                TMPDIR (default <agent>/toolchains/tmp; /tmp is not used),
+#                PYTHON_RUNTIME (optional dir with ext-map.txt; embedded as engine/python/).
 set -euo pipefail
 
 JS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -169,6 +170,16 @@ node -e '
 ' "$NM" "$NM/@dsh-android/plugin-extensions/installation-packages.json"
 
 
+# ── 6.5 optional Python runtime (Termux prebuilt) ───────────────────────────
+if [[ -n "${PYTHON_RUNTIME:-}" ]]; then
+  [[ -d "$PYTHON_RUNTIME" ]] || die "PYTHON_RUNTIME is not a directory: $PYTHON_RUNTIME"
+  [[ -f "$PYTHON_RUNTIME/ext-map.txt" ]] || die "PYTHON_RUNTIME has no ext-map.txt"
+  rm -rf "$STAGE/python"
+  cp -a "$PYTHON_RUNTIME" "$STAGE/python"
+  [[ -z "$(find "$STAGE/python" -type l -print -quit)" ]] || die "PYTHON_RUNTIME contains symlinks"
+  log "embedded Python runtime: $(du -sk "$STAGE/python" | cut -f1) KiB"
+fi
+
 # ── 7. verify ────────────────────────────────────────────────────────────────
 links=$(find "$STAGE" -type l | wc -l)
 [[ "$links" -eq 0 ]] || { find "$STAGE" -type l | head >&2; die "$links symlinks remain in the engine tree"; }
@@ -208,6 +219,10 @@ log "no symlinks; entry point and patches verified"
 # ── 8. version, zip, digest, report ──────────────────────────────────────────
 INPUT_HASH=$( (cd "$JS_DIR" && cat engine/package-lock.json patches/*.patch \
   packages/bundle-android/cordis.patch.yml packages/bundle-android/android-env.cjs packages/bundle-android/main.mjs packages/*/package.json packages/plugin-*/*.js packages/plugin-extensions/*.cjs packages/plugin-extensions/*.mjs packages/plugin-extensions/*.json packages/llm-service-lite/lib/index.js scripts/*.mjs build-engine.sh) | sha256sum | cut -c1-10)
+if [[ -n "${PYTHON_RUNTIME:-}" ]]; then
+  PY_HASH=$( (cd "$PYTHON_RUNTIME" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) | sha256sum | cut -c1-10)
+  INPUT_HASH="${INPUT_HASH}-p${PY_HASH}"
+fi
 ENGINE_VERSION="${DSH_VERSION}-a${INPUT_HASH}"
 printf '%s\n' "$ENGINE_VERSION" > "$STAGE/engine-version.txt"
 printf '%s\n' "$ENGINE_VERSION" > "$OUT_DIR/engine-version.txt"
@@ -225,6 +240,7 @@ python3 -I "$JS_DIR/scripts/make-zip.py" "$STAGE" "$OUT_DIR/engine.zip"
   echo "node_modules after prune:  $((after_kb / 1024)) MiB"
   echo "files: $(find "$STAGE" -type f | wc -l), symlinks: $links"
   echo "bundled pnpm $PNPM_VERSION: $(du -sk "$NM/pnpm" | cut -f1) KiB unpacked"
+  [[ -d "$STAGE/python" ]] && echo "python runtime: $(du -sk "$STAGE/python" | cut -f1) KiB unpacked"
   echo "engine.zip: $(du -k "$OUT_DIR/engine.zip" | cut -f1) KiB ($(stat -c %s "$OUT_DIR/engine.zip") bytes)"
   echo "sha256: $(cut -d' ' -f1 "$OUT_DIR/engine.sha256")"
   echo

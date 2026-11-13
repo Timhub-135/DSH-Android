@@ -44,7 +44,7 @@ const DEVICE_SUMMARY = Object.freeze({
   files: 'shared storage /sdcard',
   apps: 'list, launch, links, intents, sharing, per-app guides and notes',
   screen: 'operate apps on screen; needs the phone unlocked',
-  system: 'settings, toggles, volume, alarms, location, adb_shell',
+  system: 'settings, toggles, volume, alarms, location',
   notifications: 'read, open, reply, dismiss',
   comms: 'contacts, SMS, call log, calendar',
   media: 'playback control',

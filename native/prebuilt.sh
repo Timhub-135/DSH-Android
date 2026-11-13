@@ -17,7 +17,7 @@ WORK="${WORK:-$(cd "$REPO/.." && pwd)/toolchains}"
 OUT="${OUT:-$WORK/out/arm64-v8a}"
 JNI_DIR="${JNI_DIR:-$WORK/out/jniLibs}"
 ABI=arm64-v8a
-GH_REPO="${GH_REPO:-jackwener/DSH-Android}"
+GH_REPO="${GH_REPO:-Timhub-135/DSH-Android}"
 
 key() {
   local v; v="$(sed -n 's/^NODE_VERSION=//p' "$HERE/build.sh")"

@@ -1,5 +1,7 @@
 # native/ — Node for Android arm64
 
+> Python 3.14（Termux 预编译）不在这里构建：见 [`native/python/README.md`](python/README.md)。
+
 Builds what the `:engine` process loads:
 
 | Output | jniLibs name | What |
@@ -29,7 +31,7 @@ If `fetch` finds no release for the current key, the inputs changed: run `native
 release also carries the unstripped `libnode.so` for symbolizing tombstones.
 
 Defaults: `WORK=<repo>/../toolchains` (the directory next to the checkout), `OUT=$WORK/out/arm64-v8a`,
-`JNI_DIR=$WORK/out/jniLibs`, `GH_REPO=jackwener/DSH-Android`. Gradle reads jniLibs from `-Pdsh.nativeOut`
+`JNI_DIR=$WORK/out/jniLibs`, `GH_REPO=Timhub-135/DSH-Android`. Gradle reads jniLibs from `-Pdsh.nativeOut`
 (default `<repo>/toolchains/out/jniLibs`), so either make `<repo>/toolchains` a symlink to `$WORK` (it is gitignored) or
 pass `-Pdsh.nativeOut=$WORK/out/jniLibs`.
 
@@ -142,7 +144,7 @@ Skipped Termux patches:
 ## JNI wrapper (`engine-jni/dshengine.cc`)
 
 ```
-JNIEXPORT jint JNICALL Java_io_github_jackwener_dsh_engine_NodeRuntime_nativeStart(
+JNIEXPORT jint JNICALL Java_io_github_timhub135_dsh_engine_NodeRuntime_nativeStart(
     JNIEnv*, jclass, jobjectArray args, jint stdinFd, jint stdoutFd, jint stderrFd);
 JNIEXPORT jint JNI_OnLoad(JavaVM*, void*);   // returns JNI_VERSION_1_6
 ```

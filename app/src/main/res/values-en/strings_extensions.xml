@@ -225,8 +225,8 @@
     <string name="ext_mcp_kind_remote">Remote</string>
     <string name="ext_mcp_kind_npm">Local · npm</string>
     <string name="ext_mcp_name_hint">Names its tools, e.g. github</string>
-    <string name="ext_indexes_desc">An index is a list of plugins (dsh plugin market index format 1). The curated one is maintained by DSH-Android; only add indexes you trust.</string>
-    <string name="ext_indexes_curated">DSH-Android picks</string>
+    <string name="ext_indexes_desc">An index is a list of plugins (dsh plugin market index format 1). The curated one is maintained by Timhub; only add indexes you trust.</string>
+    <string name="ext_indexes_curated">Timhub picks</string>
     <string name="ext_indexes_add">Add</string>
     <string name="ext_indexes_remove">Remove</string>
     <string name="ext_indexes_restore">Restore the curated index</string>

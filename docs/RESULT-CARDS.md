@@ -48,7 +48,7 @@
 | **Change** 状态变更 | 项目名、旧值 → 新值、是否可撤销 | 音量、亮度、勿扰、Wi-Fi、蓝牙、系统设置写入 |
 | **Message** 消息 | 收件人、内容、渠道、状态（已发/草稿） | 发短信、回复通知、分享到 App |
 | **Link** 网页 | 标题、域名、摘要、图标 | 网页读取、浏览器打开 |
-| **Screen** 屏幕 | 截图缩略图、App、做了什么 | 接管、后台屏关键步骤 |
+| **Screen** 屏幕 | 截图缩略图、App、做了什么 | 接管、关键步骤 |
 
 卡片类型只增不改：新增类型时旧版本 App 读到不认识的类型就降级成工具行。
 
@@ -87,7 +87,7 @@
 | `clipboard_get` | Facts | copy |
 | `sms_send`、`notification_reply`、`share_to_app` | Message | open |
 | `sms_read`、`call_log_read`、`notification_list` | List | open |
-| `volume_set`、`brightness_set`、`dnd_set`、`sound_mode`、`wifi_toggle`、`bluetooth_toggle`、`mobile_data_toggle`、`setting_put`、`flashlight` | Change | undo |
+| `volume_set`、`brightness_set`、`dnd_set`、`sound_mode`、`wifi_toggle`、`bluetooth_toggle`、`mobile_data_toggle`、`flashlight` | Change | undo |
 | `device_status`、`setting_get`、`app_info` | Facts | — |
 | `location_get` | Place | navigate、copy |
 | `file_write`、`file_move`、`archive_create`、`archive_extract` | File | open、share |

@@ -166,8 +166,8 @@ profile pnpm settings, overlay migration. Methods, files and error codes: `docs/
   cache reads at their price ratio (0.1). When a limit is reached the next step is rejected at `agent/pre-step` (turn
   ends `blocked`) and `budget/exceeded` is sent on the bridge. Cost is estimated from CNY per 1M tokens
   `{input: 2, cacheRead: 0.2, output: 3}`, overridable via the row's `prices`.
-- **System prompt** section `android:phone-context`: tool priority (system API > intent/deep link > Shizuku > screen
-  automation), approvals, destructive-operation scope, `/system/bin/sh` + toybox, reply language from
+- **System prompt** section `android:phone-context`: tool priority (system API > intent/deep link >
+  accessibility), approvals, destructive-operation scope, `/system/bin/sh` + toybox, reply language from
   `DSH_ANDROID_LOCALE`.
 - dsh `ctx.logger` warnings/errors are mirrored to stderr (`engine.log`).
 

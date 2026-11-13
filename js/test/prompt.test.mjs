@@ -11,7 +11,7 @@ const alarm = { name: 'alarm_set', group: 'system', risk: 'write', needsUnlock: 
 
 test('screen operation section only when screen tools are registered', () => {
   const withScreen = systemPromptSection('zh-CN', [screen, launch, guide, alarm])
-  for (const s of ['background screen', 'screen: "main"', 'hand_to_user(reason, kind)', 'loop-guard', 'pacing', 'app_launch / app_open_link', 'app_guide(app)'])
+  for (const s of ["on the user's screen", 'screen: "main"', 'hand_to_user(reason, kind)', 'loop-guard', 'pacing', 'app_launch / app_open_link', 'app_guide(app)'])
     assert.ok(withScreen.includes(s), s)
   assert.ok(!withScreen.includes('vscreen_start') && !withScreen.includes('displayId'))
   assert.ok(!systemPromptSection('zh-CN', [alarm]).includes('Operating apps on screen'))

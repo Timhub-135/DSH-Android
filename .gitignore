@@ -12,3 +12,17 @@ node_modules/
 secrets/
 app/schemas/
 /toolchains
+
+# 用户 skill / 本地环境：绝不入库（发布包零 skill，见 tools/check-no-user-skills.sh）
+/skills/
+skills-disabled/
+**/skills-disabled/
+.dsh/
+.venv/
+*.skill
+skills-*.zip
+.claude/
+.agents/
+
+# Python staging/pycache
+__pycache__/
