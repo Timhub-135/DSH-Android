@@ -1,7 +1,5 @@
 # JNI entry (libdshengine.so looks up this class/method by name)
 -keep class io.github.timhub135.dsh.engine.NodeRuntime { native <methods>; }
-# Instantiated by Shizuku by class name in the shell process
--keep class io.github.timhub135.dsh.core.platform.ShellUserService { *; }
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
 -keepclassmembers @kotlinx.serialization.Serializable class ** { *** Companion; kotlinx.serialization.KSerializer serializer(...); }

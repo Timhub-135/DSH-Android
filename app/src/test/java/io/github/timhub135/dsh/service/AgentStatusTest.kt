@@ -15,7 +15,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentStatusTest {
@@ -39,37 +38,26 @@ class AgentStatusTest {
 
     @Test fun `running tool is the step, thinking between steps`() {
         val tap = call(11, "c1", "screen_tap", """{"text":"提交订单"}""")
-        val running = AgentStatus.of(live(listOf(ev(10, "turn/start", """{"turn":2}"""), tap)), false) as CapsuleStatus.Working
+        val running = AgentStatus.of(live(listOf(ev(10, "turn/start", """{"turn":2}"""), tap))) as CapsuleStatus.Working
         assertEquals("c1", running.step?.callId)
-        assertEquals(false, running.background)
-        val thinking = AgentStatus.of(live(listOf(ev(10, "turn/start", """{"turn":2}"""), tap, result(12, "c1"))), false) as CapsuleStatus.Working
+        val thinking = AgentStatus.of(live(listOf(ev(10, "turn/start", """{"turn":2}"""), tap, result(12, "c1")))) as CapsuleStatus.Working
         assertNull(thinking.step)
-    }
-
-    @Test fun `agent screen work is background unless the call targets the main screen`() {
-        val start = ev(10, "turn/start", """{"turn":2}""")
-        val bg = AgentStatus.of(live(listOf(start, call(11, "c1", "screen_tap"))), hasAgentScreen = true) as CapsuleStatus.Working
-        assertTrue(bg.background)
-        val main = AgentStatus.of(live(listOf(start, call(11, "c1", "screen_tap", """{"screen":"main"}"""))), hasAgentScreen = true) as CapsuleStatus.Working
-        assertEquals(false, main.background)
-        val web = AgentStatus.of(live(listOf(start, call(11, "c1", "web_search"))), hasAgentScreen = true) as CapsuleStatus.Working
-        assertEquals(false, web.background)
     }
 
     @Test fun `pending card says why it needs the user`() {
         val base = live(listOf(ev(10, "turn/start", """{"turn":2}"""), call(11, "c1", "screen_tap")))
         val approval = PendingApproval("k", "s", "sms_send", "c1", null, null, Risk.write, true)
-        assertEquals(CapsuleStatus.NeedsYou(Need.Approval, "sms_send"), AgentStatus.of(base.withPending(approval), false))
+        assertEquals(CapsuleStatus.NeedsYou(Need.Approval, "sms_send"), AgentStatus.of(base.withPending(approval)))
         val takeover = PendingTakeover("t", "s", "hand_to_user", "请登录", "login")
-        assertEquals(CapsuleStatus.NeedsYou(Need.Takeover, "请登录"), AgentStatus.of(base.withPending(approval).withPending(takeover), false))
+        assertEquals(CapsuleStatus.NeedsYou(Need.Takeover, "请登录"), AgentStatus.of(base.withPending(approval).withPending(takeover)))
     }
 
     @Test fun `ended turn maps to its outcome`() {
         val start = ev(10, "turn/start", """{"turn":2}""")
-        assertEquals(CapsuleStatus.Ended(End.Done), AgentStatus.of(live(listOf(start, end(11, "completed")), running = false), false))
-        assertEquals(CapsuleStatus.Ended(End.Stopped), AgentStatus.of(live(listOf(start, ev(11, "app/stopped", "{}")), running = false), false))
-        assertEquals(CapsuleStatus.Ended(End.Failed), AgentStatus.of(live(listOf(start, end(11, "error")), running = false), false))
-        assertNull(AgentStatus.of(SessionLive("s"), false))
+        assertEquals(CapsuleStatus.Ended(End.Done), AgentStatus.of(live(listOf(start, end(11, "completed")), running = false)))
+        assertEquals(CapsuleStatus.Ended(End.Stopped), AgentStatus.of(live(listOf(start, ev(11, "app/stopped", "{}")), running = false)))
+        assertEquals(CapsuleStatus.Ended(End.Failed), AgentStatus.of(live(listOf(start, end(11, "error")), running = false)))
+        assertNull(AgentStatus.of(SessionLive("s")))
     }
 
     @Test fun `border shows during main screen calls and lingers only while the turn runs`() {

@@ -2,7 +2,6 @@ package io.github.timhub135.dsh
 
 import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
-import io.github.timhub135.dsh.core.capability.AgentScreen
 import io.github.timhub135.dsh.core.data.SettingsRepository
 import io.github.timhub135.dsh.core.platform.AppLanguage
 import io.github.timhub135.dsh.core.platform.Notifications
@@ -21,7 +20,6 @@ class DshApp : Application() {
     @Inject lateinit var triggers: dagger.Lazy<TriggerHub>
     @Inject lateinit var settings: dagger.Lazy<SettingsRepository>
     @Inject lateinit var secrets: dagger.Lazy<io.github.timhub135.dsh.core.data.SecretStore>
-    @Inject lateinit var agentScreen: dagger.Lazy<AgentScreen>
     @Inject lateinit var updater: dagger.Lazy<io.github.timhub135.dsh.core.update.AppUpdater>
     @Inject lateinit var engine: dagger.Lazy<io.github.timhub135.dsh.core.engine.EngineManager>
 
@@ -42,7 +40,6 @@ class DshApp : Application() {
             runCatching { io.github.timhub135.dsh.core.engine.EngineDiagnostics.collectExitInfo(this@DshApp) }
             runCatching { triggers.get().sync() }.onFailure { android.util.Log.e("DshApp", "automation sync failed", it) }
             if (settings.get().current().floatingBall) runCatching { FloatingBallService.setEnabled(this@DshApp, true) }
-            runCatching { agentScreen.get().restoreLeftoverMutes() }
             // 引擎常驻 (#52): every start of :main, including the one boot / an app update / a re-created engine service causes.
             runCatching { engine.get().keepAlive() }
         }

@@ -25,8 +25,6 @@ sealed interface Route
 @Serializable data object OnboardingRoute : Route
 /** Onboarding's 使用 API Key step (the key card expanded). */
 @Serializable data object OnboardingKeyRoute : Route
-/** Optional 增强能力 step after onboarding, over home (Back = 跳过). */
-@Serializable data object EnhanceRoute : Route
 
 /** Platform pages (sign-in, 充值, 用量) in the in-app WebView, over the current page while AccountRepository.page is set. */
 @Serializable data object PlatformWebRoute : Route
@@ -109,12 +107,11 @@ fun NavController.up(entry: NavBackStackEntry) {
 /** First run: onboarding replaces home as the root (Back there leaves the app); home stays the graph's start. */
 fun NavController.startOnboarding() = navigate(OnboardingRoute) { popUpTo(HomeRoute) { inclusive = true } }
 
-/** Leaves onboarding for home, then 增强能力 or 设置 → 模型服务 over it. No-op once onboarding is gone. */
+/** Leaves onboarding for home, then 设置 → 模型服务 over it. No-op once onboarding is gone. */
 fun NavController.finishOnboarding(then: Route = HomeRoute) {
     if (!onboardingOnStack()) return
     navigate(HomeRoute) { popUpTo(OnboardingRoute) { inclusive = true } }
     when (then) {
-        EnhanceRoute -> navigate(EnhanceRoute)
         is SectionRoute -> openSettings(then.section)
         else -> {}
     }

@@ -59,7 +59,6 @@ object ToolPresentation {
         "file_mkdir", "file_move", "file_delete", "archive_create", "archive_extract" ->
             ToolInfo(if (name == "file_delete") R.drawable.dsw_trash_outline else R.drawable.dsw_folder_close, titleOf(name), Activity.Files, BodyKind.Text)
         "bash", "pwsh", "shell" -> ToolInfo(R.drawable.dsw_api_outline, R.string.tool_bash, Activity.Command, BodyKind.Terminal)
-        "adb_shell" -> ToolInfo(R.drawable.dsw_api_outline, R.string.tool_adb_shell, Activity.Command, BodyKind.Terminal)
         "web_search" -> ToolInfo(R.drawable.dsw_globe_outline, R.string.tool_web_search, Activity.WebSearch, BodyKind.Web)
         "web_fetch" -> ToolInfo(R.drawable.dsw_browse_outline, R.string.tool_web_fetch, Activity.WebFetch, BodyKind.Web)
         "todo_write" -> ToolInfo(R.drawable.dsw_checklist_outline, R.string.tool_todo, Activity.Plan, BodyKind.Todo)
@@ -74,7 +73,7 @@ object ToolPresentation {
         "app_list", "app_info", "app_guide", "app_note" -> ToolInfo(R.drawable.dsw_apps_add_outline, titleOf(name), Activity.Apps, BodyKind.Text)
         "app_launch", "app_open_link", "app_send_intent", "share_to_app" -> ToolInfo(R.drawable.dsw_right_up_outline, titleOf(name), Activity.Apps, BodyKind.Gesture)
         "device_status" -> ToolInfo(R.drawable.dsw_gauge_outline, R.string.tool_device_status, Activity.System, BodyKind.Text)
-        "sound_mode", "volume_set", "dnd_set", "brightness_set", "flashlight", "alarm_set", "alarm_show", "wifi_toggle", "bluetooth_toggle", "mobile_data_toggle", "setting_put" ->
+        "sound_mode", "volume_set", "dnd_set", "brightness_set", "flashlight", "alarm_set", "alarm_show", "wifi_toggle", "bluetooth_toggle", "mobile_data_toggle" ->
             ToolInfo(if (name == "alarm_set" || name == "alarm_show") R.drawable.dsw_alarm_clock_outline else R.drawable.dsw_sliders_two_outline, titleOf(name), Activity.System, BodyKind.Gesture)
         "notification_list", "notification_dismiss" -> ToolInfo(R.drawable.dsw_queue_outline, titleOf(name), Activity.Notifications, BodyKind.Text)
         "contacts_search", "sms_read", "call_log_read", "calendar_read", "calendar_add", "calendar_new_event", "sms_send" ->
@@ -119,7 +118,6 @@ object ToolPresentation {
         "wifi_toggle" -> R.string.tool_wifi
         "bluetooth_toggle" -> R.string.tool_bluetooth
         "mobile_data_toggle" -> R.string.tool_mobile_data
-        "setting_put" -> R.string.tool_setting_put
         "notification_list" -> R.string.tool_notif_list
         "notification_dismiss" -> R.string.tool_notif_dismiss
         "contacts_search" -> R.string.tool_contacts
@@ -150,7 +148,7 @@ object ToolPresentation {
     fun summary(context: Context, t: Block.Tool): String? {
         val a = t.args ?: return t.arguments.take(80).ifBlank { null }
         return when (t.name) {
-            "bash", "pwsh", "shell", "adb_shell" -> a.str("command")?.lineSequence()?.firstOrNull()
+            "bash", "pwsh", "shell" -> a.str("command")?.lineSequence()?.firstOrNull()
             "read", "write", "edit", "str_replace_editor", "read_image" -> a.str("path") ?: a.str("file_path")
             "grep", "glob" -> a.str("pattern") ?: a.str("query")
             "web_search" -> a.str("query")
@@ -184,7 +182,6 @@ object ToolPresentation {
             "file_list", "file_stat", "file_read", "file_write", "file_mkdir", "file_delete" -> a.str("path") ?: a.str("paths")
             "file_move" -> listOfNotNull(a.str("path") ?: a["paths"]?.toString(), a.str("dest")).joinToString(" → ")
             "rule_create", "rule_update" -> (a["rule"] as? JsonObject)?.str("name") ?: a.str("id")
-            "setting_put" -> listOfNotNull(a.str("namespace"), a.str("key")).joinToString(".")
             "clipboard_set" -> a.str("text")?.take(60)
             else -> a.entries.firstOrNull { it.value is JsonPrimitive }?.let { (it.value as JsonPrimitive).contentOrNull }?.take(80)
         }

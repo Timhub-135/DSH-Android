@@ -58,18 +58,10 @@ data class DiagnosticsInput(
     val androidRelease: String,
     val sdk: Int,
     val abis: List<String>,
-    val shizuku: String,
     val accessibility: Boolean,
     val overlay: Boolean,
     val batteryExempt: Boolean,
     val notifications: Boolean,
-    /** null = supported, else why not. */
-    val agentScreenUnavailable: String?,
-    val agentScreenSetting: Boolean,
-    /** Why the latest agent screen could not be created (AgentScreen.lastCreateError), null when none failed. */
-    val agentScreenError: String? = null,
-    /** Set when only the degraded, untrusted agent screen can be created here (AgentScreen.degradedReason, #60). */
-    val agentScreenDegraded: String? = null,
     /** "api key" / "account" / "none" (never the credential). */
     val deepseekCredential: String,
     /** Role → "route / model …" (main model, effort). */
@@ -102,13 +94,10 @@ object DiagnosticsReport {
         line("android", "${input.androidRelease} (SDK ${input.sdk})")
         line("abi", input.abis.joinToString(", ").ifEmpty { "unknown" })
         section("Phone access")
-        line("shizuku", input.shizuku)
         line("accessibility", yes(input.accessibility, "on", "off"))
         line("overlay", yes(input.overlay, "granted", "not granted"))
         line("battery optimization", yes(input.batteryExempt, "unrestricted", "restricted"))
         line("notifications", yes(input.notifications, "allowed", "not allowed"))
-        line("agent screen", agentScreenStatus(input) + ", setting " + yes(input.agentScreenSetting, "on", "off"))
-        input.agentScreenError?.let { line("agent screen last failure", oneLine(it, 400)) }
         section("Models")
         line("deepseek sign-in", input.deepseekCredential)
         input.roles.forEach { (role, v) -> line(role, v) }
@@ -136,17 +125,6 @@ object DiagnosticsReport {
             input.engineErrors.takeLast(ENGINE_ERROR_LINES).forEach { sb.append("  ").append(oneLine(it, 240)).append('\n') }
         }
         return Redactor.redact(sb.toString())
-    }
-
-    /**
-     * "supported", "degraded (untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31)", "unsupported (…)" when the
-     * latest creation failed with nothing else to go on, or "unavailable (…)" (no Shizuku, Android 10, …).
-     */
-    fun agentScreenStatus(input: DiagnosticsInput): String = when {
-        input.agentScreenUnavailable != null -> "unavailable (${input.agentScreenUnavailable})"
-        input.agentScreenError != null && input.agentScreenDegraded == null -> "unsupported (creation failed, see last failure)"
-        input.agentScreenDegraded != null -> "degraded (${input.agentScreenDegraded})"
-        else -> "supported"
     }
 
     private fun oneLine(s: String, max: Int) = s.replace(Regex("\\s+"), " ").trim().take(max)

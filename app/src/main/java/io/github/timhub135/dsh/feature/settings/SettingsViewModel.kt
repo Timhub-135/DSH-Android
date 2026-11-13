@@ -37,7 +37,6 @@ import io.github.timhub135.dsh.core.provider.VerifyOutcome
 import io.github.timhub135.dsh.core.provider.API_CHAT
 import io.github.timhub135.dsh.core.provider.probeModel
 import io.github.timhub135.dsh.core.provider.verifyCandidates
-import io.github.timhub135.dsh.core.platform.ShizukuShell
 import io.github.timhub135.dsh.service.FloatingBallService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,12 +60,9 @@ class SettingsViewModel @Inject constructor(
     private val engine: EngineManager,
     /** Engine restarts go through the store, so the runs they kill end as stopped (not spinning forever). */
     private val sessions: io.github.timhub135.dsh.core.session.SessionStore,
-    val shizuku: ShizukuShell,
-    private val shizukuInstaller: io.github.timhub135.dsh.core.platform.ShizukuInstaller,
     val account: io.github.timhub135.dsh.core.account.AccountRepository,
     usage: UsageDao,
     private val sessionDao: io.github.timhub135.dsh.core.data.SessionDao,
-    private val agentScreen: io.github.timhub135.dsh.core.capability.AgentScreen,
     val updater: io.github.timhub135.dsh.core.update.AppUpdater,
 ) : ViewModel() {
     val settings: StateFlow<DshSettings> = repo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, DshSettings())
@@ -177,9 +173,6 @@ class SettingsViewModel @Inject constructor(
     fun setVoiceOnAssist(on: Boolean) = viewModelScope.launch { repo.setVoiceOnAssist(on) }
     fun setAutoUpdateCheck(on: Boolean) = viewModelScope.launch { repo.setAutoUpdateCheck(on) }
     fun setEngineKeepAlive(on: Boolean) = viewModelScope.launch { engine.setKeepAlive(on) }
-    fun setAgentScreen(on: Boolean) { viewModelScope.launch { repo.setAgentScreen(on) } }
-    /** Only the degraded (untrusted) agent screen works on this phone (#60); the setting says what that means. */
-    val agentScreenDegraded: Boolean get() = agentScreen.degradedReason != null
     fun restartEngine() = viewModelScope.launch { sessions.restartEngine() }
     val engineLog: String? get() = io.github.timhub135.dsh.core.engine.EngineDiagnostics.logTail(context, 4000)
     val lastEngineExit: String? get() = ReliabilityDoctor.lastExitText(context)
@@ -202,8 +195,6 @@ class SettingsViewModel @Inject constructor(
     /** Collects the facts for [DiagnosticsReport]: versions, device, access states, routes (hosts only), recent run ends, engine errors. */
     suspend fun buildDiagnostics(): String {
         val st = settings.value
-        val shell = shizuku.access.refresh()
-        val screenWhy = runCatching { agentScreen.unavailableReason() }.getOrElse { it.message }
         return withContext(Dispatchers.IO) {
             fun granted(id: String) = runCatching { PermissionCatalog.byId(id)?.check?.invoke(context) == true }.getOrDefault(false)
             val choice = st.choice
@@ -223,15 +214,10 @@ class SettingsViewModel @Inject constructor(
                 androidRelease = android.os.Build.VERSION.RELEASE,
                 sdk = android.os.Build.VERSION.SDK_INT,
                 abis = android.os.Build.SUPPORTED_ABIS.toList(),
-                shizuku = shizuku.access.describe(shell),
                 accessibility = granted("accessibility"),
                 overlay = granted("overlay"),
                 batteryExempt = granted("battery"),
                 notifications = granted("notifications"),
-                agentScreenUnavailable = screenWhy,
-                agentScreenSetting = st.agentScreen,
-                agentScreenError = agentScreen.lastCreateError,
-                agentScreenDegraded = agentScreen.degradedReason,
                 deepseekCredential = when { hasKey -> "api key"; account.signedIn -> "account"; else -> "none" },
                 roles = roles,
                 providers = st.providers.map { ProviderFacts(it.id, it.preset, it.enabled, it.baseUrl, it.models, it.verified, it.interfaceType) },
@@ -271,11 +257,6 @@ class SettingsViewModel @Inject constructor(
         PermissionCatalog.forGroups(settings.value.enabledGroups).forEach {
             checks += DoctorCheck(it.title(zh), it.check(context), it.why(zh), it.intent(context))
         }
-        val shell = shizuku.access.refresh()
-        checks += DoctorCheck("Shizuku", if (shell == io.github.timhub135.dsh.core.platform.ShellState.NotInstalled) null else shell.ready,
-            listOfNotNull(shellStateLabel(context, shell), shellStateHint(context, shell)).joinToString(" · "), shellFixIntent(shizuku.access, shell, shizukuInstaller.bundled))
-        agentScreen.lastCreateError?.let { checks += DoctorCheck(context.getString(R.string.agent_screen_doctor), false, context.getString(R.string.agent_screen_create_failed, it)) }
-            ?: agentScreen.degradedReason?.let { checks += DoctorCheck(context.getString(R.string.agent_screen_doctor), true, context.getString(R.string.agent_screen_degraded)) }
         val signedIn = account.signedIn
         val third = settings.value.choice.provider
         checks += DoctorCheck(if (zh) "模型凭据" else "Model credential", hasKey || signedIn || third != null, when {

@@ -116,10 +116,6 @@ abstract class Tool(
     val needsUnlock: Boolean,
     val description: String,
     schema: SchemaBuilder.() -> Unit,
-    /** Shizuku dependency; CapabilityHub appends the live availability to the description. */
-    val shell: ShellUse = ShellUse.None,
-    /** What happens without Shizuku (model-facing, e.g. "open the Wi-Fi panel for the user to tap"). */
-    val shellFallback: String? = null,
     /** See [ToolDescriptor.timeoutMs]. */
     timeoutMs: Long = if (needsUnlock) ToolDescriptor.UNLOCK_TIMEOUT_MS else ToolDescriptor.DEFAULT_TIMEOUT_MS,
 ) {
@@ -148,8 +144,8 @@ class SchemaBuilder {
     })
     fun obj(name: String, desc: String, required: Boolean = false) = add(name, required, buildJsonObject { put("type", "object"); describe(desc) })
     fun raw(name: String, schema: JsonObject, required: Boolean = false) = add(name, required, schema)
-    /** The `screen` parameter of tools that act on or open a screen (the phone section explains the background screen). */
-    fun screen() = string("screen", SCREEN_DESC, enum = listOf("agent", "main"))
+    /** The `screen` parameter of tools that act on or open a screen; only the user's screen exists. */
+    fun screen() = string("screen", SCREEN_DESC, enum = listOf("main"))
 
     fun build() = buildJsonObject {
         put("type", "object")
@@ -159,7 +155,7 @@ class SchemaBuilder {
     }
 
     companion object {
-        const val SCREEN_DESC = "\"agent\" (default) = your background screen, \"main\" = the user's screen"
+        const val SCREEN_DESC = "\"main\" (the user's screen; the only screen this version supports)"
     }
 }
 

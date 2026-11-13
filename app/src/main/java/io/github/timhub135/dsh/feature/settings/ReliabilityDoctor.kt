@@ -69,7 +69,7 @@ object ReliabilityDoctor {
         out += DoctorCheck(if (zh) "DSH 输入法（可选）" else "DSH keyboard (optional)", null,
             when {
                 DshInputMethodService.isCurrent(context) -> if (zh) "当前输入法" else "Current keyboard"
-                else -> if (zh) "WebView/Flutter 等输入框的兜底；有 Shizuku 时自动切换" else "Fallback for WebView/Flutter fields; switched automatically with Shizuku"
+                else -> if (zh) "WebView/Flutter 等输入框的兜底；可在输入法选择器里手动切换" else "Fallback for WebView/Flutter fields; switch to it in the keyboard picker"
             })
         return out
     }

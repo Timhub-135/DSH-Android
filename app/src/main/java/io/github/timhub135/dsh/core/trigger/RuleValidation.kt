@@ -18,9 +18,6 @@ object RuleTime {
     fun format(t: LocalTime): String = "%02d:%02d".format(t.hour, t.minute)
 }
 
-/** Tools whose arguments only the engine's policy checks (plugin-guard hardline): never direct rule steps. */
-val ENGINE_ONLY_STEP_TOOLS = setOf("adb_shell")
-
 class RuleSpecException(val problems: List<String>) : Exception(problems.joinToString("; "))
 
 /**
@@ -75,9 +72,6 @@ fun validateRule(spec: RuleSpec, knownTools: Set<String>, now: Long = System.cur
         is RuleAction.Steps -> {
             if (a.steps.isEmpty()) p += "steps action needs at least one step"
             a.steps.map { it.tool }.filter { it !in knownTools }.distinct().takeIf { it.isNotEmpty() }?.let { p += "unknown step tool(s): ${it.joinToString()}" }
-            // A step runs without the engine, so the hardline command checks would not see it.
-            a.steps.map { it.tool }.filter { it in ENGINE_ONLY_STEP_TOOLS }.distinct().takeIf { it.isNotEmpty() }
-                ?.let { p += "${it.joinToString()} cannot be a direct step (DSH checks its commands in the engine); use an agent action that calls it" }
             allowed = allowed + a.steps.map { it.tool }
         }
     }

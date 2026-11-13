@@ -35,7 +35,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.timhub135.dsh.MainActivity
 import io.github.timhub135.dsh.R
-import io.github.timhub135.dsh.core.capability.AgentScreen
 import io.github.timhub135.dsh.core.capability.CapabilityHub
 import io.github.timhub135.dsh.core.capability.LiveCall
 import io.github.timhub135.dsh.core.data.SettingsRepository
@@ -78,7 +77,6 @@ class FloatingBallService : Service() {
     @Inject lateinit var store: SessionStore
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var hub: CapabilityHub
-    @Inject lateinit var agentScreen: AgentScreen
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var wm: WindowManager
     private var view: ImageView? = null
@@ -252,27 +250,24 @@ class FloatingBallService : Service() {
             val prev = focused
             focused = id
             if (id == null) {
-                val end = prev?.let { AgentStatus.of(store.state(it).value, false) as? CapsuleStatus.Ended }
-                if (prev != null && end != null) { showCapsule(prev, end, null); delay(AgentStatus.ENDED_MS) }
-                showCapsule(null, null, null)
+                val end = prev?.let { AgentStatus.of(store.state(it).value) as? CapsuleStatus.Ended }
+                if (prev != null && end != null) { showCapsule(prev, end); delay(AgentStatus.ENDED_MS) }
+                showCapsule(null, null)
                 return@collectLatest
             }
-            combine(store.state(id), agentScreen.displays.map { id in it }) { live, agent -> AgentStatus.of(live, agent) }
+            store.state(id)
+                .map { AgentStatus.of(it) }
                 .distinctUntilChanged()
-                .map { st -> st to (st as? CapsuleStatus.Working)?.takeIf { it.background }?.let { backgroundApp(id) } }
                 .flowOn(Dispatchers.Default)
-                .collect { (st, app) -> showCapsule(id, st, app) }
+                .collect { st -> showCapsule(id, st) }
         }
     }
 
-    private fun backgroundApp(sessionId: String): String? =
-        agentScreen.current(sessionId)?.let { d -> runCatching { DshAccessibilityService.instance?.packageOn(d) }.getOrNull() }?.let(agentScreen::label)
-
-    private fun showCapsule(sessionId: String?, status: CapsuleStatus?, app: String?) {
+    private fun showCapsule(sessionId: String?, status: CapsuleStatus?) {
         val c = capsule ?: return
         capsuleSession = sessionId.takeIf { status != null }
         if (status != null) {
-            c.text = capsuleText(status, app)
+            c.text = capsuleText(status)
             c.contentDescription = c.text
             (c.background as? GradientDrawable)?.setStroke(dp(1), when (status) {
                 is CapsuleStatus.NeedsYou -> COLOR_NEEDS_YOU
@@ -286,19 +281,13 @@ class FloatingBallService : Service() {
         render()
     }
 
-    private fun capsuleText(s: CapsuleStatus, app: String?): String = when (s) {
+    private fun capsuleText(s: CapsuleStatus): String = when (s) {
         is CapsuleStatus.NeedsYou -> when (s.need) {
             CapsuleStatus.Need.Permission -> getString(R.string.status_needs_you, getString(R.string.status_permission))
             CapsuleStatus.Need.Approval -> s.detail?.let { getString(R.string.status_needs_you, getString(R.string.status_approve, getString(ToolPresentation.info(it).title))) }
             else -> s.detail?.takeIf { it.isNotBlank() }?.let { getString(R.string.status_needs_you, it.lineSequence().first()) }
         } ?: getString(R.string.ball_needs_you)
-        is CapsuleStatus.Working -> {
-            val step = s.step?.let(::stepText)
-            when {
-                s.background && app != null -> if (step != null) getString(R.string.status_background_step, app, step) else getString(R.string.status_background, app)
-                else -> step ?: getString(R.string.status_thinking)
-            }
-        }
+        is CapsuleStatus.Working -> s.step?.let(::stepText) ?: getString(R.string.status_thinking)
         is CapsuleStatus.Ended -> getString(when (s.end) {
             CapsuleStatus.End.Done -> R.string.turn_done; CapsuleStatus.End.Stopped -> R.string.turn_stopped; CapsuleStatus.End.Failed -> R.string.status_failed
         })

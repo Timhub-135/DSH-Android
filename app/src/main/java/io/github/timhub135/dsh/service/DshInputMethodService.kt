@@ -16,8 +16,8 @@ import io.github.timhub135.dsh.R
  * commit any text — including CJK and emoji — into fields where AccessibilityNodeInfo
  * ACTION_SET_TEXT does not work (WebView, Flutter, games, custom editors). It runs in the app's main
  * process, so CapabilityHub calls [commit] directly; nothing is exported besides the system binding.
- * The agent switches to it only through Shizuku (`ime set`) and switches back afterwards; a user who
- * selects it manually gets a one-line bar with a button back to their keyboard.
+ * The agent cannot switch it silently (no shell access here); a user who selects it from the
+ * keyboard picker gets a one-line bar with a button back to their keyboard.
  */
 class DshInputMethodService : InputMethodService() {
     override fun onCreate() { super.onCreate(); instance = this }

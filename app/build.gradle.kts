@@ -7,11 +7,6 @@ plugins {
     alias(libs.plugins.room)
 }
 
-val thirdPartyOut: String = providers.gradleProperty("dsh.thirdPartyOut").orElse("../toolchains/out/third-party").get()
-
-fun shizukuPin(name: String): String =
-    Regex("^$name=(\\S+)$", RegexOption.MULTILINE).find(rootProject.file("tools/fetch-shizuku.sh").readText())?.groupValues?.get(1)
-        ?: error("tools/fetch-shizuku.sh: missing $name pin")
 
 android {
     namespace = "io.github.timhub135.dsh"
@@ -26,9 +21,6 @@ android {
         versionCode = 29
         versionName = "0.3.11"
         ndk { abiFilters += "arm64-v8a" }
-        // Bundled official Shizuku APK (in-app install/update); pinned in tools/fetch-shizuku.sh.
-        buildConfigField("String", "SHIZUKU_VERSION", "\"${shizukuPin("VERSION")}\"")
-        buildConfigField("long", "SHIZUKU_VERSION_CODE", "${shizukuPin("VERSION_CODE")}L")
     }
 
     // Release signing comes from Gradle properties (e.g. ~/.gradle/gradle.properties or -P), never from the repo:
@@ -82,21 +74,6 @@ android {
     // native/build.sh and js/build-engine.sh. Point these at their output directories.
     sourceSets["main"].jniLibs.directories += providers.gradleProperty("dsh.nativeOut").orElse("../toolchains/out/jniLibs").get()
     sourceSets["main"].assets.directories += providers.gradleProperty("dsh.engineOut").orElse("../toolchains/out/engine").get()
-    // assets/shizuku/{shizuku.apk,LICENSE}, written by tools/fetch-shizuku.sh (task fetchShizuku below).
-    sourceSets["main"].assets.directories += "$thirdPartyOut/assets"
-}
-
-// Downloads + verifies (sha256 and signing cert) the pinned Shizuku release; a no-op once it is there.
-// -Pdsh.fetchShizuku=false skips it: the app then falls back to Play Store / GitHub for installing Shizuku.
-val fetchShizuku = tasks.register<Exec>("fetchShizuku") {
-    val script = rootProject.file("tools/fetch-shizuku.sh")
-    val out = file(thirdPartyOut)
-    inputs.file(script)
-    outputs.dir(out.resolve("assets/shizuku"))
-    commandLine(script.absolutePath, out.absolutePath)
-}
-if (providers.gradleProperty("dsh.fetchShizuku").orElse("true").get().toBoolean()) {
-    tasks.named("preBuild") { dependsOn(fetchShizuku) }
 }
 
 kotlin { jvmToolchain(21) }
@@ -129,8 +106,6 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
     implementation(libs.coil.compose)
     implementation(libs.markdown.m3)
     testImplementation(libs.junit)

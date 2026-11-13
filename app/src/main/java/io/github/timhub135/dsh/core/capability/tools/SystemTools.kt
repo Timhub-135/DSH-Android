@@ -32,11 +32,8 @@ import io.github.timhub135.dsh.core.capability.reqStr
 import io.github.timhub135.dsh.core.capability.str
 import io.github.timhub135.dsh.core.model.Risk
 import io.github.timhub135.dsh.core.model.ToolGroup
-import io.github.timhub135.dsh.core.capability.ShellGate
-import io.github.timhub135.dsh.core.capability.ShellUse
 import io.github.timhub135.dsh.core.platform.AppVisibility
 import io.github.timhub135.dsh.core.platform.Locator
-import io.github.timhub135.dsh.core.platform.ShellUnavailableException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -46,10 +43,8 @@ import javax.inject.Singleton
 @Singleton
 class SystemTools @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val gate: ShellGate,
     private val launcher: ActivityLauncher,
 ) : ToolSet {
-    private val shizuku get() = gate.shell
 
     /** When the system's next alarm clock rings (epoch ms), or null when none is reported. */
     private fun nextAlarm(): Long? = runCatching { context.getSystemService(AlarmManager::class.java).nextAlarmClock?.triggerTime }.getOrNull()
@@ -64,30 +59,16 @@ class SystemTools @Inject constructor(
         else -> AudioManager.STREAM_MUSIC
     }
 
-    private suspend fun shell(cmd: String, what: String): ToolResult {
-        if (!shizuku.available) throw ShellUnavailableException(gate.access.state.value)
-        val r = shizuku.exec(cmd)
-        return if (r.code == 0) ToolResult.text("Done via Shizuku: $what. ${r.output.trim()}".trim()) else ToolResult.error("failed", r.output.ifBlank { "exit ${r.code}" })
-    }
-
-    /** Shizuku attempt for a [ShellUse.Fallback] tool: null (→ fallback path) when it fails. */
-    private suspend fun shellOrNull(cmd: String, what: String): ToolResult? = runCatching { shell(cmd, what) }.getOrNull()?.takeIf { it.ok }
-
     /**
-     * The non-shell path for a toggle: a system panel/page the user finishes with one tap. Android
-     * only lets DSH open it while DSH is visible (or may draw overlays); otherwise say so plainly.
+     * A system panel/page the user finishes with one tap. Android only lets DSH open it while DSH is
+     * visible (or may draw overlays); otherwise say so plainly.
      */
     private fun openForUser(intent: Intent, what: String): ToolResult {
-        val reason = gate.access.state.value.let { if (it.ready) "the Shizuku command failed" else it.reason }
         if (!AppVisibility.isForeground && !Settings.canDrawOverlays(context))
-            return ToolResult.error("needs_user", "Could not $what directly ($reason) and Android blocks opening system panels while DSH is in the background. Ask the user to do it.")
+            return ToolResult.error("needs_user", "Android blocks opening system panels while DSH is in the background. Ask the user to open the panel and do it themselves.")
         return runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.fold(
-            { ToolResult.text("path=system_panel: $reason, so I opened the system page to $what. The user must tap the switch there; verify with device_status before relying on it.") },
-            { ToolResult.error("failed", "Could not $what ($reason) and the system page failed to open: ${it.message}") })
-    }
-
-    private companion object {
-        const val SCREEN_DESC = io.github.timhub135.dsh.core.capability.SchemaBuilder.SCREEN_DESC
+            { ToolResult.text("path=system_panel: I opened the system page to $what. The user must tap the switch there; verify with device_status before relying on it.") },
+            { ToolResult.error("failed", "The system page to $what failed to open: ${it.message}") })
     }
 
     override val tools = listOf(
@@ -209,7 +190,7 @@ class SystemTools @Inject constructor(
                 put("items", buildJsonObject { put("type", "integer") })
             })
             int("timerSeconds", "If set, start a countdown timer instead (1-86400)")
-            string("screen", SCREEN_DESC, enum = listOf("agent", "main"))
+            screen()
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val timer = args.int("timerSeconds")
@@ -236,9 +217,8 @@ class SystemTools @Inject constructor(
                 if (!launcher.handles(i)) return ToolResult.error("not_supported",
                     "No app on this phone takes ${if (timer != null) "timers" else "alarms"} through the standard Android request. Open the clock app (app_launch) and set it on screen.")
                 val before = if (timer == null) nextAlarm() else null
-                // Not muted on the agent screen: the clock's sound is the point.
-                val sent = try { launcher.open(call, args.str("screen"), "Sent $what to the clock app", i, expect = null, create = false, mute = false) }
-                    catch (e: SecurityException) { return ToolResult.error("failed", "The clock app refused the request: ${e.message}") }
+                // The clock's sound is the point, so it is not muted.
+                val sent = launcher.open(call, args.str("screen"), "Sent $what to the clock app", i, expect = null, create = false, mute = false)
                 if (!sent.ok) return sent
                 if (timer != null) return sent.appendText("Some clock apps show a confirmation page instead of starting silently; check the screen if it matters.")
                 val expected = AlarmCheck.nextRing(java.time.ZonedDateTime.now(), args.int("hour")!!, args.int("minute") ?: 0, days).toInstant().toEpochMilli()
@@ -264,8 +244,8 @@ class SystemTools @Inject constructor(
         },
         object : Tool("alarm_show", ToolGroup.System, Risk.write, true,
             "Open the clock app's alarm list (to check or change alarms on screen with the screen_* tools), and report the system's next alarm. " +
-                "Like app_launch it opens on your background screen when there is one.", {
-            string("screen", SCREEN_DESC, enum = listOf("agent", "main"))
+                "Like app_launch it opens on the user's screen.", {
+            screen()
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val i = Intent(AlarmClock.ACTION_SHOW_ALARMS)
@@ -277,69 +257,60 @@ class SystemTools @Inject constructor(
             }
         },
         object : Tool("wifi_toggle", ToolGroup.System, Risk.write, false,
-            "Turn Wi-Fi on/off. Directly through Shizuku when available; otherwise opens the system Wi-Fi panel for the user to tap.",
-            { bool("on", "", required = true) }, ShellUse.Fallback, "open the system Wi-Fi panel and the user taps the switch") {
+            "Ask for Wi-Fi to be turned on/off: Android does not let apps switch it themselves, so this opens the system Wi-Fi panel " +
+                "and the user taps the switch. Verify with device_status afterwards.",
+            { bool("on", "", required = true) }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val on = args.bool("on") == true
                 if (runCatching { context.getSystemService(WifiManager::class.java).isWifiEnabled }.getOrNull() == on)
                     return ToolResult.text("Wi-Fi is already ${if (on) "on" else "off"}; nothing to do.")
-                if (gate.acquire(call, name, optional = true)) shellOrNull("svc wifi ${if (on) "enable" else "disable"}", "switch Wi-Fi ${if (on) "on" else "off"}")?.let { return it }
                 return openForUser(Intent(Settings.Panel.ACTION_WIFI), "switch Wi-Fi ${if (on) "on" else "off"}")
             }
         },
         object : Tool("bluetooth_toggle", ToolGroup.System, Risk.write, false,
-            "Turn Bluetooth on/off. Directly through Shizuku when available; otherwise shows the system Bluetooth prompt/page for the user to confirm.",
-            { bool("on", "", required = true) }, ShellUse.Fallback, "show the system Bluetooth prompt or page and the user confirms") {
+            "Ask for Bluetooth to be turned on/off: Android does not let apps switch it themselves, so this shows the system Bluetooth " +
+                "prompt or settings page and the user confirms. Verify with device_status afterwards.",
+            { bool("on", "", required = true) }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val on = args.bool("on") == true
                 val adapter = runCatching { context.getSystemService(android.bluetooth.BluetoothManager::class.java).adapter }.getOrNull()
                 if (adapter == null) return ToolResult.error("unsupported", "This phone has no Bluetooth adapter.")
                 if (runCatching { adapter.isEnabled }.getOrNull() == on) return ToolResult.text("Bluetooth is already ${if (on) "on" else "off"}; nothing to do.")
-                if (gate.acquire(call, name, optional = true)) shellOrNull("cmd bluetooth_manager ${if (on) "enable" else "disable"}", "switch Bluetooth ${if (on) "on" else "off"}")?.let { return it }
                 val canAsk = on && (android.os.Build.VERSION.SDK_INT < 31 || context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED)
                 return openForUser(if (canAsk) Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE) else Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
                     "switch Bluetooth ${if (on) "on" else "off"}")
             }
         },
         object : Tool("mobile_data_toggle", ToolGroup.System, Risk.write, false,
-            "Turn mobile data on/off. Directly through Shizuku when available; otherwise opens the system Internet panel for the user to tap.",
-            { bool("on", "", required = true) }, ShellUse.Fallback, "open the system Internet panel and the user taps the switch") {
+            "Ask for mobile data to be turned on/off: Android does not let apps switch it themselves, so this opens the system Internet " +
+                "panel and the user taps the switch. Verify with network state afterwards.",
+            { bool("on", "", required = true) }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val on = args.bool("on") == true
-                if (gate.acquire(call, name, optional = true)) shellOrNull("svc data ${if (on) "enable" else "disable"}", "switch mobile data ${if (on) "on" else "off"}")?.let { return it }
                 return openForUser(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY), "switch mobile data ${if (on) "on" else "off"}")
             }
         },
         object : Tool("setting_get", ToolGroup.System, Risk.read, false,
-            "Read Android settings: one key, or (key omitted, needs Shizuku) every key in a namespace matching filter. Common keys: " +
-                "global airplane_mode_on, mobile_data, wifi_on, bluetooth_on, auto_time; system screen_off_timeout (ms), screen_brightness (0-255), " +
-                "screen_brightness_mode, accelerometer_rotation (auto-rotate), font_scale; secure location_mode, default_input_method, ui_night_mode.",
+            "Read one Android setting by key. Common keys: global airplane_mode_on, mobile_data, wifi_on, bluetooth_on, auto_time; " +
+                "system screen_off_timeout (ms), screen_brightness (0-255), screen_brightness_mode, accelerometer_rotation (auto-rotate), font_scale; " +
+                "secure location_mode, default_input_method, ui_night_mode. Listing every key is not supported in this version.",
             {
                 string("namespace", "", required = true, enum = listOf("system", "secure", "global"))
-                string("key", "Setting key (omit to list)"); string("filter", "When listing: only keys containing this")
-            }, ShellUse.Fallback, "read public keys directly (listing and hidden keys need Shizuku)") {
+                string("key", "The setting key to read (required)", required = true)
+            }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val ns = args.reqStr("namespace")
-                val key = args.str("key")?.filter { it.isLetterOrDigit() || it in "_." }
-                if (key == null) {
-                    val r = runCatching { shell("settings list $ns", "list settings") }.getOrNull()
-                        ?: return ToolResult.error("shizuku_unavailable", "Listing settings needs Shizuku (${gate.access.state.value.reason}); read a specific key instead.")
-                    if (!r.ok) return r
-                    val f = args.str("filter")?.lowercase()
-                    val lines = (r.content.firstOrNull() as? io.github.timhub135.dsh.core.capability.Content.Text)?.text.orEmpty()
-                        .removePrefix("Done via Shizuku: list settings.").lines().map { it.trim() }.filter { it.isNotEmpty() && (f == null || it.lowercase().contains(f)) }
-                    return ToolResult.text(lines.take(300).joinToString("\n").ifEmpty { "No matching keys." } + if (lines.size > 300) "\n…(${lines.size - 300} more; use filter)" else "")
-                }
+                val rawKey = args.str("key")
+                if (rawKey.isNullOrBlank()) return ToolResult.error("not_supported",
+                    "Please specify a key: listing every setting is not supported in this version. Pass e.g. key: \"screen_brightness\".")
+                val key = rawKey.filter { it.isLetterOrDigit() || it in "_." }
                 val cr = context.contentResolver
                 val direct = runCatching {
                     when (ns) { "system" -> Settings.System.getString(cr, key); "secure" -> Settings.Secure.getString(cr, key); else -> Settings.Global.getString(cr, key) }
                 }
                 direct.getOrNull()?.let { return ToolResult.text("$ns $key = $it") }
-                if (shizuku.available) {
-                    val r = shizuku.exec("settings get $ns $key")
-                    if (r.code == 0) return ToolResult.text("$ns $key = ${r.output.trim()} (via Shizuku)")
-                }
-                return if (direct.isFailure) ToolResult.error("not_authorized", "Android does not let apps read $ns/$key (${direct.exceptionOrNull()?.javaClass?.simpleName}); it needs Shizuku.")
+                return if (direct.isFailure) ToolResult.error("not_authorized",
+                    "Android does not let apps read $ns/$key (${direct.exceptionOrNull()?.javaClass?.simpleName}). Read a public key instead.")
                 else ToolResult.text("$ns $key is not set (null).")
             }
         },
@@ -367,59 +338,5 @@ class SystemTools @Inject constructor(
                 })
             }
         },
-        object : Tool("setting_put", ToolGroup.System, Risk.dangerous, false,
-            "Write an Android setting via `settings put <namespace> <key> <value>` (needs Shizuku). For things no dedicated tool covers.", {
-                string("namespace", "", required = true, enum = listOf("system", "secure", "global"))
-                string("key", "", required = true); string("value", "", required = true)
-            }, ShellUse.Required) {
-            override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
-                // An empty value is legitimate (e.g. clearing enabled_accessibility_services, #8).
-                val v = (args.str("value") ?: throw InvalidArgsException("missing 'value'")).replace("'", "")
-                return shell("settings put ${args.reqStr("namespace")} ${args.reqStr("key").filter { it.isLetterOrDigit() || it in "_." }} '$v'", "change setting")
-            }
-        },
-        object : Tool(AdbShell.NAME, ToolGroup.System, Risk.write, false, AdbShell.DESCRIPTION, {
-                string("command", "The command line, e.g. \"dumpsys battery\", \"pm list packages -3\", \"ls /sdcard/Android/data\"", required = true)
-                int("timeout_s", "Seconds before the command is stopped (default ${AdbShell.DEFAULT_TIMEOUT_S}, max ${AdbShell.MAX_TIMEOUT_S})")
-            }, ShellUse.Required) {
-            override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
-                // The hardline floor lives in the engine (plugin-guard); a direct rule step would skip it.
-                if (!call.viaEngine) return ToolResult.error("not_authorized", AdbShell.NOT_FROM_ENGINE)
-                val cmd = args.reqStr("command")
-                if (!shizuku.available) throw ShellUnavailableException(gate.access.state.value)
-                val timeoutS = AdbShell.timeoutS(args.int("timeout_s"))
-                val r = shizuku.exec(cmd, timeoutS * 1000L)
-                return ToolResult.text(AdbShell.format(r.code, r.output, timeoutS))
-            }
-        },
     )
-}
-
-/** `adb_shell`: a command as the shell user through Shizuku (= `adb shell <command>`), for what an app's own shell cannot do. */
-internal object AdbShell {
-    const val NAME = "adb_shell"
-    const val DEFAULT_TIMEOUT_S = 30
-    const val MAX_TIMEOUT_S = 240
-    /** ShellUserService.exec keeps at most this many characters of output. */
-    const val OUTPUT_CAP = 64_000
-    const val TIMED_OUT = 124
-
-    const val DESCRIPTION = "Run a command as the Android shell user through Shizuku: the same as `adb shell <command>` from a computer, on this phone. " +
-        "Only for what the bash tool cannot do as an app: pm (list, enable/disable, grant), am (start, force-stop), cmd, dumpsys, settings, wm, input, " +
-        "appops, logcat -d, and files under Android/data or Android/obb. Prefer a dedicated tool when one fits (file_*, setting_put, wifi_toggle, app_*). " +
-        "Runs /system/bin/sh from \"/\" without root and without a terminal: no prompts, and a command that never ends (logcat without -d, top without -n) " +
-        "is stopped at the timeout. Returns the exit code and stdout+stderr (at most 64 000 characters). The same hard blocks as bash apply."
-
-    const val NOT_FROM_ENGINE = "adb_shell runs only from a conversation or an automation's agent run (where DSH's command safety checks see it), " +
-        "not as a direct automation step. Make the automation an agent action instead."
-
-    fun timeoutS(requested: Int?): Int = (requested ?: DEFAULT_TIMEOUT_S).coerceIn(1, MAX_TIMEOUT_S)
-
-    fun format(code: Int, output: String, timeoutS: Int): String = buildString {
-        append("exit ").append(code)
-        if (code == TIMED_OUT) append(" (stopped after ${timeoutS}s, or the command itself exited 124)")
-        val out = output.trimEnd()
-        append('\n').append(out.ifEmpty { "(no output)" })
-        if (output.length >= OUTPUT_CAP) append("\n…(output cut at $OUTPUT_CAP characters; narrow the command, e.g. with grep or head)")
-    }
 }

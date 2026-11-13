@@ -5,10 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import android.graphics.BitmapFactory
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import io.github.timhub135.dsh.core.capability.AgentScreen
 import io.github.timhub135.dsh.core.data.Effort
 import io.github.timhub135.dsh.core.data.SessionEntity
 import io.github.timhub135.dsh.core.data.Settings
@@ -45,7 +41,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /** Which representation of the session the top-bar toggle shows. */
@@ -176,20 +171,7 @@ class HomeViewModel @Inject constructor(
     store: SessionStore,
     engine: EngineManager,
     settings: SettingsRepository,
-    private val agentScreen: AgentScreen,
 ) : ConversationController(store, engine, settings) {
-    /** The open conversation's agent display (live preview), or null. */
-    val agentDisplay: StateFlow<Int?> = combine(currentId, agentScreen.displays) { id, m -> m[id] }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** One preview frame of the agent screen, [maxWidth] px wide; null when there is none. */
-    suspend fun agentFrame(displayId: Int, maxWidth: Int): ImageBitmap? = agentScreen.frame(displayId, maxWidth)?.let { jpeg ->
-        withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
-    }
-
-    /** 我来接管: the agent screen's app moves to the user's screen; the agent stops acting there until the user writes. */
-    fun takeOverAgentScreen(onDone: (Boolean) -> Unit) = viewModelScope.launch { onDone(agentScreen.handToUser(id, byUser = true) != null) }
-
     val sessions: StateFlow<List<SessionEntity>> = store.conversations.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val rowStatus: StateFlow<Map<String, RowStatus>> = store.status
 

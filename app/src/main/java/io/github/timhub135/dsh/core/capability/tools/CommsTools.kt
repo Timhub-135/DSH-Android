@@ -186,7 +186,7 @@ class CommsTools @Inject constructor(
         object : Tool("calendar_new_event", ToolGroup.Comms, Risk.write, true,
             "Open the calendar app's new-event page prefilled with title, time, location and notes (no calendar permission needed). " +
                 "Nothing is saved yet: then read the screen and tap its save button (screen_read → screen_tap), and check the result. " +
-                "Like app_launch it opens on your background screen when there is one. Times are ISO-8601 local time (2026-10-29T15:00); a bare date is all-day.", {
+                "Like app_launch it opens on the user's screen. Times are ISO-8601 local time (2026-10-29T15:00); a bare date is all-day.", {
             string("title", "", required = true)
             string("start", "Start, ISO-8601 local time (or a date for all-day)"); string("end", "End, ISO-8601 local time or date (default: start + 1h; all-day: the start day)")
             int("startMs", "Start epoch ms (alternative)"); int("endMs", "End epoch ms (alternative)")

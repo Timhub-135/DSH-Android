@@ -141,7 +141,7 @@ private fun ToolBody(t: Block.Tool, kind: BodyKind) {
         return
     }
     when (kind) {
-        BodyKind.Terminal -> CodeCard(out.ifBlank { "…" }, label = t.args?.str("cwd") ?: if (t.name == "adb_shell") "adb shell" else "sh", header = "$ " + (t.args?.str("command") ?: ""), maxHeight = 224.dp)
+        BodyKind.Terminal -> CodeCard(out.ifBlank { "…" }, label = t.args?.str("cwd") ?: "sh", header = "$ " + (t.args?.str("command") ?: ""), maxHeight = 224.dp)
         BodyKind.Read -> CodeCard(numbered(out, 8), label = t.args?.str("path") ?: t.args?.str("file_path"))
         BodyKind.Search, BodyKind.Web, BodyKind.Text -> if (out.isNotBlank()) CodeCard(out, label = stringResource(ToolPresentation.info(t.name).title))
         BodyKind.Todo -> TodoList((t.args?.get("todos") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { o -> (o.str("content") ?: "") to (o.str("status") ?: "pending") } } ?: emptyList())

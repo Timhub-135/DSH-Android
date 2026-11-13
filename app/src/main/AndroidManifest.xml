@@ -19,7 +19,6 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- Installs/updates the bundled official Shizuku APK (PackageInstaller session). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
@@ -44,8 +43,6 @@
         <intent><action android:name="android.intent.action.MAIN" /></intent>
         <!-- Custom Tabs provider for 用浏览器登录 (Browser.signInIntent). -->
         <intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>
-        <!-- Shizuku manager (shell access) and Play Store (to install it). -->
-        <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.android.vending" />
         <!-- Vendor keep-alive screens (RomKeepAlive; RomKeepAliveTest keeps this list in sync). -->
         <package android:name="com.coloros.oppoguardelf" />
@@ -282,12 +279,5 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 </manifest>

@@ -34,8 +34,8 @@ class DiagnosticsTest {
     private fun input(runs: List<RunOutcome> = emptyList(), errors: List<String> = emptyList()) = DiagnosticsInput(
         appVersion = "0.2.6", versionCode = 16, buildType = "release", engineVersion = "0.2.1-rc.2-ad86b59ac98",
         device = "Xiaomi 2312", androidRelease = "15", sdk = 35, abis = listOf("arm64-v8a"),
-        shizuku = "Shizuku is ready", accessibility = true, overlay = false, batteryExempt = true, notifications = true,
-        agentScreenUnavailable = null, agentScreenSetting = true, deepseekCredential = "api key",
+        accessibility = true, overlay = false, batteryExempt = true, notifications = true,
+        deepseekCredential = "api key",
         roles = listOf("main model" to "ollama / qwen3:8b (passed test)"),
         providers = listOf(
             ProviderFacts("ollama", "ollama", true, "http://192.168.1.5:11434/v1", listOf("qwen3:8b", "gemma3"), listOf("qwen3:8b", "gone"), "openai-responses"),
@@ -44,16 +44,6 @@ class DiagnosticsTest {
         runs = runs, engineState = "ready", engineErrors = errors, lastEngineExit = null,
         generatedAt = 1_793_000_000_000, timeZone = TimeZone.getTimeZone("UTC"),
     )
-
-    @Test fun agentScreenLine() {
-        assertTrue(DiagnosticsReport.build(input()).contains("agent screen: supported, setting on"))
-        val degraded = input().copy(sdk = 31, agentScreenDegraded = "untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31")
-        assertTrue(DiagnosticsReport.build(degraded).contains("agent screen: degraded (untrusted display: no ADD_TRUSTED_DISPLAY, SDK 31), setting on"))
-        val failed = input().copy(agentScreenError = "flags 0x9: SecurityException: nope")
-        assertEquals("unsupported (creation failed, see last failure)", DiagnosticsReport.agentScreenStatus(failed))
-        assertTrue(DiagnosticsReport.build(failed).contains("agent screen last failure: flags 0x9: SecurityException: nope"))
-        assertEquals("unavailable (no Shizuku)", DiagnosticsReport.agentScreenStatus(failed.copy(agentScreenUnavailable = "no Shizuku")))
-    }
 
     @Test fun reportHasFixedSectionsAndNoSecrets() {
         val runs = listOf(

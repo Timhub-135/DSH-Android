@@ -39,12 +39,6 @@ class DshAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // A click on the user's own screen: what opens there next is the user's doing (AgentScreen.pullBack).
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val pkg = event.packageName?.toString()
-            if (pkg != packageName && clickedOnMain(event, pkg)) lastMainClickAt = android.os.SystemClock.elapsedRealtime()
-            return
-        }
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName || pkg == _foreground.value || pkg == SYSTEM_UI || pkg in imePackages()) return
@@ -55,15 +49,6 @@ class DshAccessibilityService : AccessibilityService() {
         if (activePkg != null && activePkg != pkg) return
         _foreground.value = pkg
         TriggerEvents.appOpened(pkg)
-    }
-
-    /** The event's display is API 33+; before that, a click counts as the user's when its app has a window on the main screen. */
-    private fun clickedOnMain(event: AccessibilityEvent, pkg: String?): Boolean = when {
-        Build.VERSION.SDK_INT >= 33 -> event.displayId == Display.DEFAULT_DISPLAY
-        Build.VERSION.SDK_INT >= 30 -> runCatching {
-            windowsOnAllDisplays.get(Display.DEFAULT_DISPLAY).orEmpty().any { it.root?.packageName?.toString() == pkg }
-        }.getOrDefault(false)
-        else -> false
     }
 
     private fun imePackages(): Set<String> = runCatching {
@@ -220,13 +205,6 @@ class DshAccessibilityService : AccessibilityService() {
             })
         }
 
-    /** The app in front of [displayId], from its window list only (no tree walk). */
-    fun packageOn(displayId: Int): String? {
-        if (Build.VERSION.SDK_INT < 30) return null
-        val apps = runCatching { windowsOnAllDisplays.get(displayId).orEmpty() }.getOrDefault(emptyList()).filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-        return (apps.firstOrNull { it.isActive || it.isFocused } ?: apps.firstOrNull())?.root?.packageName?.toString()
-    }
-
     /**
      * Android 13+: commit text through the accessibility service's own input connection
      * (flagInputMethodEditor) — works in most editors without switching keyboards.
@@ -263,9 +241,6 @@ class DshAccessibilityService : AccessibilityService() {
             private set
         private const val SYSTEM_UI = "com.android.systemui"
         private val _foreground = MutableStateFlow<String?>(null)
-        /** elapsedRealtime of the user's last click on the main screen (Android 11+). */
-        @Volatile var lastMainClickAt = 0L
-            private set
         val foregroundPackage: StateFlow<String?> = _foreground
     }
 }

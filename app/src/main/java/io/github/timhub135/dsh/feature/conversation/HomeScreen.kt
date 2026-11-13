@@ -132,8 +132,6 @@ private fun ConversationPane(vm: HomeViewModel, onMenu: () -> Unit, onSettings: 
             // Nothing to leave on the empty home, so no 新会话 there.
             if (!empty) IconBtn(R.drawable.dsw_new_chat_outline, { vm.newSession(null) }, size = 40.dp, iconSize = 18.dp, tint = c.labelPrimary, contentDescription = stringResource(R.string.new_session))
         }
-        val agentDisplay by vm.agentDisplay.collectAsStateWithLifecycle()
-        agentDisplay?.takeIf { live.running }?.let { AgentPreview(vm, it) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             AnimatedContent(Triple(view, empty, live.sessionId), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "pane") { (v, isEmpty, _) ->
                 when {

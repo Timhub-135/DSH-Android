@@ -3,15 +3,16 @@ package io.github.timhub135.dsh.core.platform
 import java.io.File
 
 /**
- * The agent display's flag sets, most capable first (ShellUserService.createDisplay tries them in order).
+ * Flag sets for creating a virtual display, most capable first. This is plain flag arithmetic and is
+ * kept independent of who creates the display: this version has no background screen, so the app does
+ * not currently create one.
  *
- * TRUSTED needs ADD_TRUSTED_DISPLAY, a signature permission AOSP grants shell but some ROMs do not
- * (Huawei EMUI 14.2 / Android 12, #60: "Requires ADD_TRUSTED_DISPLAY permission to create a trusted
- * virtual display"). OWN_DISPLAY_GROUP checks the same permission, ALWAYS_UNLOCKED needs its own and
- * OWN_FOCUS is ignored without TRUSTED, so the untrusted tiers carry none of them. They still work for
- * shell: launching with `am start --display` (shell holds INTERNAL_SYSTEM_WINDOW), `input -d` and task
- * moves; what changes is listed in docs/AGENT-SCREEN-V2.md §1 (degraded mode). PRESENTATION is left out
- * on purpose: it would offer the agent screen to other apps as a presentation (second-screen) display.
+ * TRUSTED needs ADD_TRUSTED_DISPLAY, a signature permission AOSP grants to the shell user but some
+ * ROMs do not (Huawei EMUI 14.2 / Android 12, #60: "Requires ADD_TRUSTED_DISPLAY permission to create
+ * a trusted virtual display"). OWN_DISPLAY_GROUP checks the same permission, ALWAYS_UNLOCKED needs its
+ * own and OWN_FOCUS is ignored without TRUSTED, so the untrusted tiers carry none of them.
+ * PRESENTATION is left out on purpose: it would offer the display to other apps as a presentation
+ * (second-screen) display.
  */
 internal object DisplayTiers {
     // DisplayManager.VIRTUAL_DISPLAY_FLAG_* (several are hidden)
@@ -52,9 +53,9 @@ internal object DisplayTiers {
     fun ownGroup(flags: Int) = flags and OWN_DISPLAY_GROUP != 0
 
     /**
-     * [error], thrown creating a display with [flags], means this device refuses trusted displays to shell
-     * altogether (so every TRUSTED tier would fail the same way). OWN_DISPLAY_GROUP's refusal names the same
-     * permission but not a trusted display; with a group it only counts when the message says "trusted".
+     * [error], thrown creating a display with [flags], means this device refuses trusted displays altogether
+     * (so every TRUSTED tier would fail the same way). OWN_DISPLAY_GROUP's refusal names the same permission
+     * but not a trusted display; with a group it only counts when the message says "trusted".
      */
     fun trustedDenied(flags: Int, error: Throwable): Boolean {
         if (!trusted(flags) || error !is SecurityException) return false

@@ -3,7 +3,6 @@ package io.github.timhub135.dsh.core.capability.tools
 import android.content.Context
 import android.os.Build
 import android.os.Environment
-import android.os.ParcelFileDescriptor
 import android.util.Base64
 import android.webkit.MimeTypeMap
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -20,9 +19,6 @@ import io.github.timhub135.dsh.core.capability.str
 import io.github.timhub135.dsh.core.capability.strs
 import io.github.timhub135.dsh.core.model.Risk
 import io.github.timhub135.dsh.core.model.ToolGroup
-import io.github.timhub135.dsh.core.platform.IShellService
-import io.github.timhub135.dsh.core.platform.ShellFiles
-import io.github.timhub135.dsh.core.platform.ShizukuShell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -41,17 +37,17 @@ import javax.inject.Singleton
 
 /**
  * Shared-storage file operations ("All files access"). Paths may be absolute or relative to /sdcard.
- * Android/data and Android/obb (closed to apps on Android 11+) go through the Shizuku shell user
- * service instead ([PrivateStorage], ShellFiles), with the same limits and the same risk levels.
+ * Android/data and Android/obb are closed to ordinary apps on Android 11+ and this version has no
+ * shell access, so those paths are refused with `android_data_restricted` ([PrivateStorage]).
  */
 @Singleton
-class FileTools @Inject constructor(@ApplicationContext private val context: Context, private val shizuku: ShizukuShell) : ToolSet {
+class FileTools @Inject constructor(@ApplicationContext private val context: Context) : ToolSet {
     private val root: File = Environment.getExternalStorageDirectory()
 
     private fun need() { if (!hasAllFilesAccess(context)) throw PermissionMissingException("All files access") }
 
-    /** A private-storage path while Shizuku is not ready: a plain model-facing error, not a permission card. */
-    private class NeedsShizuku(message: String) : Exception(message)
+    /** A restricted storage path: a plain model-facing error, not a permission card. */
+    private class Restricted(message: String) : Exception(message)
 
     private fun resolve(path: String): File {
         val f = (if (path.startsWith("/")) File(path) else File(root, path)).canonicalFile
@@ -61,30 +57,22 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
         return f
     }
 
-    /**
-     * True when [f] must be served by the shell user (Android/data|obb on Android 11+, Shizuku ready);
-     * false for an ordinary path, which needs All files access ([need]).
-     */
-    private fun viaShell(f: File): Boolean {
-        if (!PrivateStorage.needsShell(f.path, Build.VERSION.SDK_INT)) { need(); return false }
-        if (!shizuku.available) throw NeedsShizuku(PrivateStorage.needsShizuku(shizuku.access.state.value.reason))
-        return true
+    /** Refuses Android/data and Android/obb on Android 11+ (no shell access in this version). */
+    private fun denyRestricted(f: File) {
+        if (PrivateStorage.isRestricted(f.path, Build.VERSION.SDK_INT)) throw Restricted(PrivateStorage.ANDROID_DATA_RESTRICTED)
     }
 
     /** For tools that only work on ordinary paths (archives). */
-    private fun localOnly(f: File, tool: String): File {
-        if (PrivateStorage.needsShell(f.path, Build.VERSION.SDK_INT)) throw InvalidArgsException(
-            "$tool cannot work inside Android/data or Android/obb; copy the files to another folder with file_move (copy=true) first, then use $tool there.")
+    private fun localOnly(f: File): File {
+        denyRestricted(f)
         need()
         return f
     }
 
-    /** Runs a tool body on the IO dispatcher; a private path without Shizuku becomes a clear error. */
+    /** Runs a tool body on the IO dispatcher; a restricted path becomes a clear error. */
     private suspend fun io(block: suspend CoroutineScope.() -> ToolResult): ToolResult = withContext(Dispatchers.IO) {
-        try { block() } catch (e: NeedsShizuku) { ToolResult.error("shizuku_required", e.message ?: "Shizuku is needed") }
+        try { block() } catch (e: Restricted) { ToolResult.error(PrivateStorage.ERROR_CODE, e.message ?: PrivateStorage.ANDROID_DATA_RESTRICTED) }
     }
-
-    private suspend fun shell(): IShellService = shizuku.service()
 
     private fun line(dir: Boolean, size: Long, mtime: Long, path: String): String {
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(mtime))
@@ -92,20 +80,10 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
     }
 
     private fun File.describe(): String = line(isDirectory, length(), lastModified(), path)
-    private fun ShellFiles.Row.describe(): String = line(dir, size, mtime, path)
 
-    /** A file for file_read: [open] streams it, [file] gives a local File (the file itself, or a cached copy). */
+    /** A file for file_read: [open] streams it, [file] gives the local File itself. */
     private class Src(ext: String, val size: Long, val described: String, val open: () -> InputStream, val file: () -> File) {
         val ext = ext.lowercase()
-    }
-
-    /** Shell rows plus the trailer lines ("#total N", "#more", "#note …"). */
-    private class Rows(val rows: List<ShellFiles.Row>, val total: Int?, val note: String?)
-    private fun rows(raw: String): Rows {
-        val lines = raw.lines()
-        return Rows(lines.mapNotNull { ShellFiles.parseRow(it) },
-            lines.firstOrNull { it.startsWith("#total ") }?.removePrefix("#total ")?.trim()?.toIntOrNull(),
-            lines.firstOrNull { it.startsWith("#note ") }?.removePrefix("#note "))
     }
 
     private fun human(n: Long): String = when {
@@ -117,15 +95,13 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
 
     private companion object {
         const val MAX_CHARS = 100_000
-        /** Images and documents read through Shizuku are copied to the cache first; larger ones are refused. */
-        const val MAX_SHELL_COPY = 64L shl 20
-        const val PRIVATE_NOTE = " Android/data and Android/obb work too (through Shizuku on Android 11+)."
+        const val PRIVATE_NOTE = " Android/data and Android/obb are not accessible on Android 11+ (this version has no shell access)."
     }
 
     override val tools = listOf(
         object : Tool("file_search", ToolGroup.Files, Risk.read, false,
             "Find files on shared storage by name pattern and/or text content. Fast (ripgrep). Use before reading or modifying files. " +
-                "Android/data and Android/obb are only searched when 'dir' points inside them (through Shizuku on Android 11+).", {
+                "Android/data and Android/obb are not accessible to apps on Android 11+ and are skipped.", {
                 string("name", "Glob on file name, e.g. '*.pdf' or '*invoice*'")
                 string("content", "Text the file must contain (literal, case-insensitive; text files only)")
                 bool("regex", "Treat content as a regular expression")
@@ -135,14 +111,9 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult = io {
                 val dir = resolve(args.str("dir") ?: root.path)
+                denyRestricted(dir)
+                need()
                 val limit = (args.int("limit") ?: 100).coerceIn(1, 1000)
-                if (viaShell(dir)) {
-                    val r = rows(shell().fsSearch(dir.path, args.str("name"), args.str("content")?.takeIf { it.isNotEmpty() }, args.bool("regex") == true, limit, args.str("sort")))
-                    val total = r.total ?: r.rows.size
-                    return@io ToolResult.text((if (r.rows.isEmpty()) "No files found." else
-                        "$total match(es)${if (total > r.rows.size) ", showing ${r.rows.size}" else ""} (via Shizuku):\n" + r.rows.joinToString("\n") { it.describe() }) +
-                        (r.note?.let { "\n(note: $it)" } ?: ""))
-                }
                 val rg = File(context.filesDir, "bin/rg").path
                 val filters = mutableListOf("--hidden", "--no-messages", "-g", "!Android/data/**", "-g", "!Android/obb/**")
                 args.str("name")?.let { filters += listOf("--iglob", it) }
@@ -188,17 +159,9 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
                 val dir = resolve(args.str("path") ?: root.path)
+                denyRestricted(dir)
+                need()
                 val limit = (args.int("limit") ?: 300).coerceIn(1, 2000)
-                if (viaShell(dir)) {
-                    val raw = shell().fsList(dir.path, args.bool("recursive") == true, limit)
-                    val r = rows(raw)
-                    val more = when {
-                        raw.endsWith("#more") -> "\n…(more entries not shown; use file_search or a narrower folder)"
-                        (r.total ?: 0) > r.rows.size -> "\n…(${r.total!! - r.rows.size} more not shown; raise limit or use file_search)"
-                        else -> ""
-                    }
-                    return@io ToolResult.text(if (r.rows.isEmpty()) "(empty)" else r.rows.joinToString("\n") { it.describe() } + more)
-                }
                 if (!dir.isDirectory) throw InvalidArgsException("Not a directory: ${dir.path}")
                 val (entries, total) = if (args.bool("recursive") == true) {
                     val all = dir.walkTopDown().drop(1).take(limit + 1).toList()
@@ -225,26 +188,10 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
                 val f = resolve(args.reqStr("path"))
-                if (!viaShell(f)) {
-                    if (!f.isFile) throw InvalidArgsException("Not a file: ${f.path}")
-                    return@io read(Src(f.extension, f.length(), f.describe(), { f.inputStream() }, { f }), args)
-                }
-                val svc = shell()
-                val row = svc.fsStat(f.path)?.let { ShellFiles.parseRow(it) }
-                if (row == null || row.dir) throw InvalidArgsException("Not a file: ${f.path}")
-                val open = { ParcelFileDescriptor.AutoCloseInputStream(svc.fsOpen(f.path, "r")) }
-                // Images and documents need a real file: a bounded copy in the cache, removed afterwards.
-                var tmp: File? = null
-                try {
-                    read(Src(f.extension, row.size, row.describe() + " (via Shizuku)", open) {
-                        if (row.size > MAX_SHELL_COPY) throw InvalidArgsException("${f.path} is ${human(row.size)}; files over ${human(MAX_SHELL_COPY)} of this type " +
-                            "cannot be opened through Shizuku. Copy it to another folder with file_move (copy=true) and read the copy.")
-                        File(File(context.cacheDir, "shell-read").apply { mkdirs() }, "${System.nanoTime()}.${f.extension}").also { t ->
-                            tmp = t
-                            open().use { i -> t.outputStream().use { i.copyTo(it) } }
-                        }
-                    }, args)
-                } finally { tmp?.delete() }
+                denyRestricted(f)
+                need()
+                if (!f.isFile) throw InvalidArgsException("Not a file: ${f.path}")
+                read(Src(f.extension, f.length(), f.describe(), { f.inputStream() }, { f }), args)
             }
 
             private fun read(src: Src, args: JsonObject): ToolResult {
@@ -316,16 +263,11 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             strings("paths", "Paths", required = true)
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
+                need()
                 ToolResult.text(args.strs("paths").map { p ->
                     val f = resolve(p)
-                    if (viaShell(f)) {
-                        val row = shell().fsStat(f.path)?.let { ShellFiles.parseRow(it) }
-                        return@map when {
-                            row == null -> "$p: not found"
-                            row.dir -> "${f.path}/: folder, ${row.count ?: 0} files, ${human(row.size)}"
-                            else -> row.describe()
-                        }
-                    }
+                    if (PrivateStorage.isRestricted(f.path, Build.VERSION.SDK_INT))
+                        return@map "$p: unavailable (android_data_restricted) — ${PrivateStorage.ANDROID_DATA_RESTRICTED}"
                     when {
                         !f.exists() -> "$p: not found"
                         f.isDirectory -> { val files = f.walkTopDown().filter { it.isFile }.toList()
@@ -342,13 +284,8 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
                 val f = resolve(args.reqStr("path"))
-                if (viaShell(f)) {
-                    val svc = shell()
-                    val bytes = (args.str("content") ?: "").toByteArray(Charsets.UTF_8)
-                    ParcelFileDescriptor.AutoCloseOutputStream(svc.fsOpen(f.path, if (args.bool("append") == true) "wa" else "w")).use { it.write(bytes) }
-                    val size = svc.fsStat(f.path)?.let { ShellFiles.parseRow(it) }?.size ?: bytes.size.toLong()
-                    return@io ToolResult.text("Wrote ${f.path} (${human(size)}, via Shizuku)")
-                }
+                denyRestricted(f)
+                need()
                 f.parentFile?.mkdirs()
                 if (args.bool("append") == true) f.appendText(args.str("content") ?: "") else f.writeText(args.str("content") ?: "")
                 ToolResult.text("Wrote ${f.path} (${human(f.length())})")
@@ -358,7 +295,13 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             strings("paths", "Folders to create", required = true)
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
-                ToolResult.text(args.strs("paths").map { val f = resolve(it); if (viaShell(f)) shell().fsMkdirs(f.path) else { f.mkdirs(); "ok ${f.path}" } }.joinToString("\n"))
+                need()
+                ToolResult.text(args.strs("paths").map { p ->
+                    val f = resolve(p)
+                    if (PrivateStorage.isRestricted(f.path, Build.VERSION.SDK_INT))
+                        "refused $p: android_data_restricted — ${PrivateStorage.ANDROID_DATA_RESTRICTED}"
+                    else { f.mkdirs(); "ok ${f.path}" }
+                }.joinToString("\n"))
             }
         },
         object : Tool("file_move", ToolGroup.Files, Risk.write, false,
@@ -377,6 +320,7 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
                 bool("copy", "Copy instead of move")
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
+                need()
                 val copy = args.bool("copy") == true
                 val items = (args["items"] as? kotlinx.serialization.json.JsonArray) ?: throw InvalidArgsException("missing items")
                 // Each item is independent: one failure is reported and the rest still run.
@@ -386,11 +330,10 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
                         val rawTo = o.reqStr("to")
                         val from = resolve(o.reqStr("from"))
                         var to = resolve(rawTo)
-                        if (!copy && PrivateStorage.isScopeRoot(from.path)) return@runCatching "refused: ${from.path} (moving all of Android/data or Android/obb)"
-                        // Either end in Android/data|obb: the shell user does the whole item (it reaches both).
-                        val fromShell = viaShell(from)
-                        if (fromShell || viaShell(to))
-                            return@runCatching shell().fsMove(from.path, to.path + if (rawTo.endsWith("/")) "/" else "", copy) + " (via Shizuku)"
+                        if (PrivateStorage.isRestricted(from.path, Build.VERSION.SDK_INT))
+                            return@runCatching "refused ${from.path}: android_data_restricted — ${PrivateStorage.ANDROID_DATA_RESTRICTED}"
+                        if (PrivateStorage.isRestricted(to.path, Build.VERSION.SDK_INT))
+                            return@runCatching "refused ${to.path}: android_data_restricted — ${PrivateStorage.ANDROID_DATA_RESTRICTED}"
                         if (!from.exists()) return@runCatching "failed ${from.path}: not found"
                         // A trailing slash means "into this folder", even if it does not exist yet.
                         if (rawTo.endsWith("/") || to.isDirectory) { to.mkdirs(); to = File(to, from.name) }
@@ -407,7 +350,7 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
                             from.renameTo(to) -> "moved ${from.path} → ${to.path}"
                             else -> { from.copyRecursively(to); from.deleteRecursively(); "moved ${from.path} → ${to.path}" }
                         }
-                    }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException || e is NeedsShizuku) throw e; "failed ${(el as? JsonObject)?.str("from")}: ${e.message}" }
+                    }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException || e is Restricted) throw e; "failed ${(el as? JsonObject)?.str("from")}: ${e.message}" }
                 }.joinToString("\n"))
             }
         },
@@ -416,14 +359,15 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
                 strings("paths", "Exact paths to delete", required = true)
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
+                need()
                 val paths = args.strs("paths")
                 if (paths.isEmpty()) throw InvalidArgsException("no paths")
                 val rootPath = root.canonicalPath
                 ToolResult.text(paths.map { p ->
                     val f = resolve(p)
                     val path = f.canonicalPath
-                    if (PrivateStorage.isScopeRoot(path)) return@map "refused: ${f.path} (all of Android/data or Android/obb)"
-                    if (viaShell(f)) return@map shell().fsDelete(f.path) + " (via Shizuku)"
+                    if (PrivateStorage.isRestricted(path, Build.VERSION.SDK_INT))
+                        return@map "refused ${f.path}: android_data_restricted — ${PrivateStorage.ANDROID_DATA_RESTRICTED}"
                     when {
                         // The storage root, anything above it (/storage, /storage/emulated) and volume roots (SD cards).
                         path == rootPath || rootPath.startsWith("$path/") || f.parentFile?.canonicalPath == "/storage" || path == "/storage" ->
@@ -440,8 +384,8 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             string("output", "Output .zip path", required = true)
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
-                val out = localOnly(resolve(args.reqStr("output")), name)
-                val inputs = args.strs("paths").map { localOnly(resolve(it), name) }
+                val out = localOnly(resolve(args.reqStr("output")))
+                val inputs = args.strs("paths").map { localOnly(resolve(it)) }
                 if (inputs.isEmpty()) throw InvalidArgsException("no paths")
                 inputs.firstOrNull { !it.exists() }?.let { throw InvalidArgsException("Not found: ${it.path}") }
                 out.parentFile?.mkdirs()
@@ -476,8 +420,8 @@ class FileTools @Inject constructor(@ApplicationContext private val context: Con
             bool("overwrite", "Replace files that already exist (default: skip them)")
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext) = io {
-                val zipFile = localOnly(resolve(args.reqStr("archive")), name)
-                val dest = localOnly(resolve(args.str("dest") ?: File(zipFile.parentFile, zipFile.nameWithoutExtension).path), name).apply { mkdirs() }
+                val zipFile = localOnly(resolve(args.reqStr("archive")))
+                val dest = localOnly(resolve(args.str("dest") ?: File(zipFile.parentFile, zipFile.nameWithoutExtension).path)).apply { mkdirs() }
                 val overwrite = args.bool("overwrite") == true
                 var n = 0; var skippedUnsafe = 0; var skippedExisting = 0; var replaced = 0
                 // Names are UTF-8 when the archive says so; Windows tools (Explorer, WinRAR, 360压缩) write GBK

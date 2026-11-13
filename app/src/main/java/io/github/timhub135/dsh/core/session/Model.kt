@@ -40,7 +40,7 @@ data class PendingPermission(
     val requestKey: String,
     val sessionId: String,
     val toolName: String,
-    /** PermissionCatalog id, or null when only a description is known (e.g. Shizuku). */
+    /** PermissionCatalog id, or null when only a description is known. */
     val permissionId: String?,
     val what: String,
 )

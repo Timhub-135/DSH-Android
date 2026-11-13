@@ -8,7 +8,6 @@ import android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SET
 import android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -21,7 +20,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.timhub135.dsh.core.capability.ActionGuard
 import io.github.timhub135.dsh.core.capability.ActionOutcome
-import io.github.timhub135.dsh.core.capability.AgentScreen
 import io.github.timhub135.dsh.core.capability.AppKnowledge
 import io.github.timhub135.dsh.core.capability.CallContext
 import io.github.timhub135.dsh.core.capability.Frame
@@ -33,7 +31,6 @@ import io.github.timhub135.dsh.core.capability.PermissionMissingException
 import io.github.timhub135.dsh.core.capability.SchemaBuilder
 import io.github.timhub135.dsh.core.capability.ScreenDiff
 import io.github.timhub135.dsh.core.capability.ScreenOcr
-import io.github.timhub135.dsh.core.capability.ScreenTarget
 import io.github.timhub135.dsh.core.capability.StableIds
 import io.github.timhub135.dsh.core.capability.TextInput
 import io.github.timhub135.dsh.core.capability.Tool
@@ -46,12 +43,10 @@ import io.github.timhub135.dsh.core.capability.reqStr
 import io.github.timhub135.dsh.core.capability.str
 import io.github.timhub135.dsh.core.model.Risk
 import io.github.timhub135.dsh.core.model.ToolGroup
-import io.github.timhub135.dsh.core.platform.ShizukuShell
 import io.github.timhub135.dsh.core.session.SessionStore
 import io.github.timhub135.dsh.core.session.TakeoverAnswer
 import io.github.timhub135.dsh.service.DshAccessibilityService
 import io.github.timhub135.dsh.service.ScreenSnapshot
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.ConcurrentHashMap
@@ -60,23 +55,20 @@ import javax.inject.Singleton
 import kotlin.math.hypot
 
 /**
- * Reading and operating a screen through the accessibility service (Shizuku `input` as fallback):
- * the conversation's agent screen when it has one (AgentScreen), else the user's screen. Element ids
- * are stable across reads, reads after an action only send what changed, and every action reports
- * its measured effect (docs/AGENT-SCREEN-V2.md §3).
+ * Reading and operating the user's screen through the accessibility service. Element ids are stable
+ * across reads, reads after an action only send what changed, and every action reports its measured
+ * effect. This version has no background screen: every screen_* call acts where the user is.
  */
 @Singleton
 class ScreenTools @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val shizuku: ShizukuShell,
     private val textInput: TextInput,
     private val sessions: dagger.Lazy<SessionStore>,
-    private val agent: AgentScreen,
     private val ocr: ScreenOcr,
     private val knowledge: AppKnowledge,
     private val guard: ActionGuard,
 ) : ToolSet {
-    /** What the model has seen of one screen of one conversation. */
+    /** What the model has seen of the screen of one conversation. */
     private class View {
         val ids = StableIds()
         /** The last read sent to the model: the base of the next diff. */
@@ -86,16 +78,16 @@ class ScreenTools @Inject constructor(
         @Volatile var lastPackage: String? = null
     }
     private val views = ConcurrentHashMap<String, View>()
-    private fun view(call: CallContext, d: Int) = views.getOrPut("${call.sessionId.substringBefore('/')}|$d") { View() }
+    private fun view(call: CallContext) = views.getOrPut(call.sessionId.substringBefore('/')) { View() }
 
     /** A live snapshot with stable ids assigned. */
     private class Read(val snap: ScreenSnapshot, val frame: Frame)
 
     private fun svc() = DshAccessibilityService.instance ?: throw PermissionMissingException("Accessibility service (DSH screen control)")
 
-    private fun read(call: CallContext, d: Int): Read {
-        val snap = svc().snapshot(d)
-        return Read(snap, view(call, d).ids.assign(snap.packageName, snap.elements))
+    private fun read(call: CallContext): Read {
+        val snap = svc().snapshot(Display.DEFAULT_DISPLAY)
+        return Read(snap, view(call).ids.assign(snap.packageName, snap.elements))
     }
 
     private fun clickable(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -106,16 +98,18 @@ class ScreenTools @Inject constructor(
 
     private suspend fun settle() = delay(400)
 
-    private fun metrics(displayId: Int): DisplayMetrics = DisplayMetrics().also { m ->
+    private fun metrics(): DisplayMetrics = DisplayMetrics().also { m ->
         val dm = context.getSystemService(DisplayManager::class.java)
-        val d = dm.getDisplay(displayId) ?: dm.getDisplay(Display.DEFAULT_DISPLAY)
-        @Suppress("DEPRECATION") d.getRealMetrics(m)
+        val d = dm.getDisplay(Display.DEFAULT_DISPLAY)
+        if (d != null) { @Suppress("DEPRECATION") d.getRealMetrics(m) } else m.setTo(context.resources.displayMetrics)
     }
 
-    private fun where(t: ScreenTarget) = if (t.agent) "agent screen" else "user's screen"
+    /** The user-facing name of a package, for result texts. */
+    private fun label(pkg: String): String =
+        runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
 
-    private fun header(f: Frame, t: ScreenTarget, g: Int) = metrics(t.displayId).let {
-        "App: ${f.packageName} · read #$g · ${where(t)} ${it.widthPixels}x${it.heightPixels} px"
+    private fun header(f: Frame, g: Int) = metrics().let {
+        "App: ${f.packageName} · read #$g · user's screen ${it.widthPixels}x${it.heightPixels} px"
     }
 
     private fun body(f: Frame, max: Int): String {
@@ -130,17 +124,17 @@ class ScreenTools @Inject constructor(
      * Sends [r] in full and makes it the base of the next diff. Adds recognized text when the tree
      * has too little ([forceOcr]: always), and app knowledge the first time the conversation is in an app.
      */
-    private suspend fun full(call: CallContext, t: ScreenTarget, r: Read, max: Int, forceOcr: Boolean): String {
-        val v = view(call, t.displayId)
+    private suspend fun full(call: CallContext, r: Read, max: Int, forceOcr: Boolean): String {
+        val v = view(call)
         val g = ++v.reads
         if (r.frame.packageName != null || r.frame.elements.isNotEmpty()) v.shown = r.frame
-        return "${header(r.frame, t, g)}\n${body(r.frame, max)}" + ocrSection(t, r.frame, v, forceOcr) + visit(call, t, r.frame)
+        return "${header(r.frame, g)}\n${body(r.frame, max)}" + ocrSection(r.frame, v, forceOcr) + visit(call, r.frame)
     }
 
     /** Text recognition fallback (§3.3); also resets the `t` ids when not run. */
-    private suspend fun ocrSection(t: ScreenTarget, f: Frame, v: View, force: Boolean): String {
+    private suspend fun ocrSection(f: Frame, v: View, force: Boolean): String {
         if (!force && f.readableCount >= ScreenOcr.SPARSE) { v.ocr = emptyList(); return "" }
-        val bmp = screenshot(t)
+        val bmp = screenshot()
         if (bmp == null) { v.ocr = emptyList(); return if (force) "\n(text recognition unavailable: no screenshot of this screen)" else "" }
         if (isBlank(bmp)) { v.ocr = emptyList(); return if (force) "\n(text recognition skipped: the page is protected)" else "" }
         val lines = runCatching { ocr.read(bmp) }.getOrElse { v.ocr = emptyList(); return "\n(text recognition failed: ${it.message})" }
@@ -149,19 +143,17 @@ class ScreenTools @Inject constructor(
         return "\n-- text recognized from the screenshot (tap with node \"t<n>\") --\n" + ScreenOcr.render(lines)
     }
 
-    /** First time in an app: its usage knowledge, if any. The agent screen also mutes apps that arrive on it. */
-    private suspend fun visit(call: CallContext, t: ScreenTarget, f: Frame): String {
-        val v = view(call, t.displayId)
+    /** First time in an app: its usage knowledge, if any. */
+    private suspend fun visit(call: CallContext, f: Frame): String {
+        val v = view(call)
         val pkg = f.packageName ?: return ""
         if (pkg == v.lastPackage) return ""
         v.lastPackage = pkg
-        if (t.agent) agent.mute(call.sessionId, pkg)
         return knowledge.firstVisitNotice(call.sessionId, pkg)?.let { "\n\n$it" } ?: ""
     }
 
-    private suspend fun screenshot(t: ScreenTarget): Bitmap? =
-        if (t.agent) agent.frame(t.displayId)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-        else DshAccessibilityService.instance?.let { capture(it, t.displayId).bitmap }
+    private suspend fun screenshot(): Bitmap? =
+        DshAccessibilityService.instance?.let { capture(it, Display.DEFAULT_DISPLAY).bitmap }
 
     /** Accessibility screenshot, retried once when the previous one was less than a second ago. */
     private suspend fun capture(a11y: DshAccessibilityService, d: Int): DshAccessibilityService.Capture {
@@ -172,17 +164,14 @@ class ScreenTools @Inject constructor(
     }
 
     /**
-     * The read after an action: effects (no change, rate-limit message, another app, an app pulled
-     * back from the user's screen), then only the differences from the read the model last saw,
-     * unless the page changed.
+     * The read after an action: effects (no change, rate-limit message, another app), then only the
+     * differences from the read the model last saw, unless the page changed.
      */
-    private suspend fun after(call: CallContext, t: ScreenTarget, before: Frame?, done: String, watch: AgentScreen.Watch? = null): ToolResult {
+    private suspend fun after(call: CallContext, before: Frame?, done: String): ToolResult {
         settle()
-        val spill = agent.pullBack(call.sessionId, watch)
-        if (t.agent && agent.showsProtected(t.displayId)) return protectedScreen(call, t, "screen")
         if (DshAccessibilityService.instance == null) return ToolResult.text(done)
-        val r = read(call, t.displayId)
-        val v = view(call, t.displayId)
+        val r = read(call)
+        val v = view(call)
         // A custom-drawn screen has (almost) no tree: whether it changed is judged by its recognized text.
         val sparse = r.frame.readableCount < ScreenOcr.SPARSE
         val textBefore = v.ocr.map { it.text }
@@ -199,11 +188,11 @@ class ScreenTools @Inject constructor(
                 v.ocr = emptyList()
                 (if (diff.empty) "Screen unchanged since read #${g - 1} (read #$g)."
                 else "Screen now (read #$g) — changes since read #${g - 1}; everything else is unchanged:\n" + diff.render(shown, r.frame).trimEnd()) +
-                    stale + visit(call, t, r.frame)
+                    stale + visit(call, r.frame)
             }
         } else null
-        val screenText = screen ?: "Screen now — ${full(call, t, r, 6000, forceOcr = false)}"
-        val noEffect = before != null && before.fingerprint == r.frame.fingerprint && !shade && spill == null &&
+        val screenText = screen ?: "Screen now — ${full(call, r, 6000, forceOcr = false)}"
+        val noEffect = before != null && before.fingerprint == r.frame.fingerprint && !shade &&
             (!sparse || (textBefore.isNotEmpty() && textBefore == v.ocr.map { it.text }))
         val effects = buildList {
             if (noEffect) add("Effect: nothing changed on screen.")
@@ -211,8 +200,7 @@ class ScreenTools @Inject constructor(
                 add("Effect: the app says \"$it\" — it is limiting these actions. Stop repeating them and tell the user.")
             }
             if (before != null && r.frame.packageName != before.packageName && r.frame.packageName != null)
-                add("Effect: switched to ${agent.label(r.frame.packageName)} (${r.frame.packageName}).")
-            spill?.let(::add)
+                add("Effect: switched to ${label(r.frame.packageName)} (${r.frame.packageName}).")
         }
         return ToolResult.text((listOf(done) + effects + screenText).joinToString("\n"))
             .withOutcome(if (noEffect) ActionOutcome.NoEffect else ActionOutcome.Effective, r.frame.fingerprint)
@@ -243,59 +231,54 @@ class ScreenTools @Inject constructor(
         }
     }
 
+    /** The `screen` argument: this version has only the user's screen. */
+    private fun rejectNonMainScreen(args: JsonObject): ToolResult? {
+        val s = args.str("screen")
+        return if (s != null && s != "main") ToolResult.error("not_supported",
+            "Only the user's screen is supported in this version (there is no background screen); pass screen: \"main\" or leave it out.")
+        else null
+    }
+
     /** A protected (FLAG_SECURE) page cannot be seen, so it is not operated blind: it goes to the user. */
-    private suspend fun protectedScreen(call: CallContext, t: ScreenTarget, toolName: String): ToolResult {
-        val pkg = DshAccessibilityService.instance?.snapshot(t.displayId)?.packageName ?: "this app"
-        return takeover(call, t, toolName, "${agent.label(pkg)} 的当前页面禁止截图（支付、密码等安全页面），需要你在手机上完成这一步。", "secure_page",
+    private suspend fun protectedScreen(call: CallContext, toolName: String): ToolResult {
+        val pkg = DshAccessibilityService.instance?.snapshot(Display.DEFAULT_DISPLAY)?.packageName ?: "this app"
+        return takeover(call, toolName, "${label(pkg)} 的当前页面禁止截图（支付、密码等安全页面），需要你在手机上完成这一步。", "secure_page",
             "The screen of $pkg is protected (screenshots are blocked)")
     }
 
     /**
-     * Hands a step to the user (§2): card 我来处理 / 跳过; 我来处理 moves the agent screen's top task to
-     * the user's screen (a step on the user's screen [t] is already in front of them); then 处理好了
-     * (moved back, read again) / 我自己做完了 / 不做了. The agent screen is kept while the card waits;
-     * a card that times out leaves the app with the user.
+     * Hands a step to the user (§2): card 我来处理 / 跳过; then 处理好了 (read again) / 我自己做完了 /
+     * 不做了. Everything happens on the user's own screen.
      */
-    private suspend fun takeover(call: CallContext, t: ScreenTarget, toolName: String, reason: String, kind: String, why: String = "This step needs the user"): ToolResult {
+    private suspend fun takeover(call: CallContext, toolName: String, reason: String, kind: String, why: String = "This step needs the user"): ToolResult {
         val sid = call.sessionId
         if (call.unattended || sid.isEmpty()) return ToolResult.error("needs_user",
             "$why ($reason). Automations cannot hand steps to the user; stop and report this.")
-        val answer = agent.holding(sid) {
-            try {
-                call.waitFor("handle it on the phone") {
-                    sessions.get().requestTakeover(sid, toolName, reason, kind) { t.agent && agent.handToUser(sid) != null }
-                }
-            } catch (e: CancellationException) {
-                agent.leaveWithUser(sid)
-                throw e
-            }
+        val answer = call.waitFor("handle it on the phone") {
+            sessions.get().requestTakeover(sid, toolName, reason, kind) { true }
         }
         return when (answer) {
             TakeoverAnswer.Skip, TakeoverAnswer.Start -> ToolResult.text("$why; the user skipped it (did not do it). Continue without it if you can; otherwise stop and summarize.")
-            TakeoverAnswer.Abort -> { agent.leaveWithUser(sid); ToolResult.error("user_declined", "$why; the user chose not to do it. End this step and summarize.") }
-            TakeoverAnswer.DoneByUser -> { agent.leaveWithUser(sid); ToolResult.text("$why; the user finished the task themselves on their screen. " +
-                "Do not operate any more: only read the screen (screen: \"main\") to verify, then report.") }
+            TakeoverAnswer.Abort -> ToolResult.error("user_declined", "$why; the user chose not to do it. End this step and summarize.")
+            TakeoverAnswer.DoneByUser -> ToolResult.text("$why; the user finished the task themselves on their screen. " +
+                "Do not operate any more: only read the screen to verify, then report.")
             TakeoverAnswer.Handled -> {
-                val back = agent.takeBack(sid)
-                val now = agent.target(sid, if (t.agent) null else "main")
                 settle()
-                val screen = DshAccessibilityService.instance?.let { "\nScreen now — ${full(call, now, read(call, now.displayId), 6000, forceOcr = false)}" } ?: ""
-                ToolResult.text("$why; the user handled it and tapped 处理好了." + (if (back) " The app is back on the agent screen." else "") +
-                    " Continue from the screen below; do not ask them to repeat it.$screen")
+                val r = DshAccessibilityService.instance?.let { read(call) }
+                val screen = r?.let { "\nScreen now — ${full(call, it, 6000, forceOcr = false)}" } ?: ""
+                ToolResult.text("$why; the user handled it and tapped 处理好了. Continue from the screen below; do not ask them to repeat it.$screen")
             }
         }
     }
-
-    private suspend fun shellKey(code: Int, d: Int): Boolean = shizuku.available && shizuku.exec("input -d $d keyevent $code").code == 0
 
     /** An element (or recognized text line) the model referred to by id or text. */
     private class Hit(val node: AccessibilityNodeInfo?, val x: Int, val y: Int, val label: String?, val note: String? = null)
 
     /** Resolves `node` (e…, t…, or a bare number) / `text` against the fresh read [r]. Null when neither was given. */
-    private fun locate(call: CallContext, d: Int, args: JsonObject, r: Read): Hit? {
+    private fun locate(call: CallContext, args: JsonObject, r: Read): Hit? {
         args.str("node")?.takeIf { it.isNotBlank() }?.let { raw ->
             val id = StableIds.normalize(raw)
-            val v = view(call, d)
+            val v = view(call)
             if (id.startsWith("t")) {
                 val line = id.drop(1).toIntOrNull()?.let { v.ocr.getOrNull(it - 1) }
                     ?: throw InvalidArgsException("Unknown text id $raw; call screen_read again (text ids come from text recognition)")
@@ -313,7 +296,7 @@ class ScreenTools @Inject constructor(
         val i = els.indexOfFirst { it.text == text || it.desc == text }.takeIf { it >= 0 }
             ?: els.indexOfFirst { (it.label ?: "").contains(text, ignoreCase = true) }.takeIf { it >= 0 }
         if (i != null) return hit(r, i, null)
-        val line = view(call, d).ocr.firstOrNull { it.text.contains(text, ignoreCase = true) }
+        val line = view(call).ocr.firstOrNull { it.text.contains(text, ignoreCase = true) }
             ?: throw InvalidArgsException("No element with text '$text'; call screen_read")
         return Hit(null, line.x, line.y, line.text)
     }
@@ -344,22 +327,16 @@ class ScreenTools @Inject constructor(
         return "Waited ${wait / 1000} s before this tap so the app does not take it for automation."
     }
 
-    /** Every screen tool takes `screen`; acting on the agent screen stops while the user has taken it over. */
+    /** Every screen tool takes `screen`; only the user's screen exists in this version. */
     private abstract inner class ScreenTool(name: String, risk: Risk, needsUnlock: Boolean, description: String, schema: SchemaBuilder.() -> Unit) :
         Tool(name, ToolGroup.Screen, risk, needsUnlock, description, {
             schema()
             screen()
         }) {
-        abstract suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult
+        abstract suspend fun run(args: JsonObject, call: CallContext): ToolResult
 
-        override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
-            val t = agent.target(call.sessionId, args.str("screen"))
-            t.off?.let { return ToolResult.error("agent_display_off", it) }
-            if (t.agent && risk != Risk.read && agent.userTookOver(call.sessionId)) return ToolResult.error("user_took_over",
-                "The user took the app over from the agent screen and is using it on their own screen. Do not operate it; wait for their message or ask them.")
-            val r = run(args, call, t)
-            return t.note?.let { r.prependText(it) } ?: r
-        }
+        override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult =
+            rejectNonMainScreen(args) ?: run(args, call)
     }
 
     override val tools = listOf(
@@ -370,13 +347,12 @@ class ScreenTools @Inject constructor(
                 "{wheel} marks a picker wheel: set it with screen_set_wheel. Prefer this over screenshots.", {
                 bool("ocr", "Also recognize text in a screenshot (when elements are missing from the list)")
             }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                if (t.agent && agent.showsProtected(t.displayId)) return protectedScreen(call, t, name)
-                val r = read(call, t.displayId)
-                val v = view(call, t.displayId)
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
+                val r = read(call)
+                val v = view(call)
                 val same = v.shown?.fingerprint == r.frame.fingerprint
                 val textBefore = v.ocr.map { it.text }
-                val text = full(call, t, r, 12000, forceOcr = args.bool("ocr") == true)
+                val text = full(call, r, 12000, forceOcr = args.bool("ocr") == true)
                 val unchanged = same && textBefore == v.ocr.map { it.text }
                 return ToolResult.text(text).withOutcome(if (unchanged) ActionOutcome.ReadUnchanged else ActionOutcome.ReadChanged, r.frame.fingerprint)
             }
@@ -384,24 +360,17 @@ class ScreenTools @Inject constructor(
         object : ScreenTool("screen_capture", Risk.read, true,
             "Screenshot of the screen as an image. Use only when screen_read is not enough (images, canvas, games). " +
                 "The image is downscaled; the caption gives the factor to convert image pixels to the screen pixels that screen_tap/screen_swipe take.", {}) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
-                val bmp = if (t.agent) {
-                    if (agent.showsProtected(d)) return protectedScreen(call, t, name)
-                    screenshot(t) ?: throw IllegalStateException("No frame from the agent screen yet; wait a moment and retry")
-                } else {
-                    val shot = capture(svc(), d)
-                    if (shot.errorCode == ERROR_SECURE_WINDOW) return protectedScreen(call, t, name)
-                    val b = shot.bitmap ?: throw IllegalStateException("Screenshot failed: ${screenshotError(shot.errorCode)}")
-                    val interactive = context.getSystemService(PowerManager::class.java).isInteractive
-                    if (Build.VERSION.SDK_INT < 34 && interactive && isBlank(b)) return protectedScreen(call, t, name)
-                    b
-                }
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
+                val shot = capture(svc(), Display.DEFAULT_DISPLAY)
+                if (shot.errorCode == ERROR_SECURE_WINDOW) return protectedScreen(call, name)
+                val bmp = shot.bitmap ?: throw IllegalStateException("Screenshot failed: ${screenshotError(shot.errorCode)}")
+                val interactive = context.getSystemService(PowerManager::class.java).isInteractive
+                if (Build.VERSION.SDK_INT < 34 && interactive && isBlank(bmp)) return protectedScreen(call, name)
                 val img = Images.encode(bmp)
                 val k = bmp.width.toFloat() / img.width
                 val caption = (if (img.width == bmp.width) "image ${img.width}x${img.height} = screen pixels"
                     else "image ${img.width}x${img.height} = screen ${bmp.width}x${bmp.height} scaled ${"%.3f".format(1 / k)}. " +
-                        "screen_tap/screen_swipe take SCREEN pixels: multiply image coordinates by ${"%.3f".format(k)}.") + " (${where(t)})"
+                        "screen_tap/screen_swipe take SCREEN pixels: multiply image coordinates by ${"%.3f".format(k)}.") + " (user's screen)"
                 return ToolResult.image(Images.MIME, Base64.encodeToString(img.bytes, Base64.NO_WRAP), caption)
             }
         },
@@ -413,84 +382,73 @@ class ScreenTools @Inject constructor(
                 number("x", "X in screen pixels"); number("y", "Y in screen pixels")
                 string("kind", "Tap kind", enum = listOf("tap", "long"))
             }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 val long = args.str("kind") == "long"
                 val px = args.int("x"); val py = args.int("y")
-                // Coordinates still work through Shizuku alone, without effects (no accessibility tree to compare).
-                if (DshAccessibilityService.instance == null && px != null && py != null && shizuku.available)
-                    return ToolResult.text(if (tapAt(px.toFloat(), py.toFloat(), long, d)) "Tapped at $px,$py (Shizuku; no accessibility service, so the effect is unknown)" else "Tap was cancelled")
-                fun target(r: Read) = locate(call, d, args, r) ?: run {
+                fun target(r: Read) = locate(call, args, r) ?: run {
                     val x = px ?: throw InvalidArgsException("Give node, text, or x/y")
                     val y = py ?: throw InvalidArgsException("missing y")
                     Hit(null, x, y, labelAt(r, x, y))
                 }
-                var r = read(call, d)
+                var r = read(call)
                 var hit = target(r)
                 // The wait can be long: find the target again on the screen as it is after it.
-                val paced = pace(call, r.frame.packageName, hit)?.also { r = read(call, d); hit = target(r) }
-                val watch = if (t.agent) agent.watch(call.sessionId) else null
+                val paced = pace(call, r.frame.packageName, hit)?.also { r = read(call); hit = target(r) }
                 val c = hit.node?.takeIf { it.refresh() }?.let(::clickable)
                 var tapped = true
                 val done = if (c != null && c.performAction(if (long) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK)) {
                     "Tapped [${hit.label ?: "element"}]"
                 } else {
                     val (x, y) = hit.node?.let { n -> Rect().also(n::getBoundsInScreen).let { it.centerX() to it.centerY() } } ?: (hit.x to hit.y)
-                    tapped = tapAt(x.toFloat(), y.toFloat(), long, d)
+                    tapped = tapAt(x.toFloat(), y.toFloat(), long)
                     if (tapped) "Tapped at $x,$y" + (hit.label?.let { " [$it]" } ?: "") else "Tap was cancelled"
                 }
                 if (tapped && outward(hit)) r.frame.packageName?.let { guard.pacing.noteDone(it, SystemClock.elapsedRealtime()) }
-                return after(call, t, r.frame, listOfNotNull(paced, hit.note, done).joinToString("\n"), watch)
+                return after(call, r.frame, listOfNotNull(paced, hit.note, done).joinToString("\n"))
             }
 
-            private suspend fun tapAt(x: Float, y: Float, long: Boolean, d: Int): Boolean {
-                val a11y = DshAccessibilityService.instance
-                return if (a11y != null) a11y.tap(x, y, if (long) 700 else 60, d)
-                else if (shizuku.available) shizuku.exec(if (long) "input -d $d swipe ${x.toInt()} ${y.toInt()} ${x.toInt()} ${y.toInt()} 700"
-                    else "input -d $d tap ${x.toInt()} ${y.toInt()}").code == 0
-                else throw PermissionMissingException("Accessibility service (DSH screen control)")
+            private suspend fun tapAt(x: Float, y: Float, long: Boolean): Boolean {
+                val a11y = DshAccessibilityService.instance ?: throw PermissionMissingException("Accessibility service (DSH screen control)")
+                return a11y.tap(x, y, if (long) 700 else 60, Display.DEFAULT_DISPLAY)
             }
         },
         object : ScreenTool("screen_type", Risk.write, true,
             "Type text into an editable field (element id, or the focused field). Replaces the field's content unless append=true. " +
-                "submit=true then presses the keyboard's Enter/Search key. Works in WebView/Flutter fields too (falls back to the DSH keyboard, Shizuku or paste).", {
+                "submit=true then presses the keyboard's Enter/Search key. Works in WebView/Flutter fields too (falls back to the DSH keyboard or paste).", {
                 string("text", "Text to enter", required = true)
                 string("node", "Editable element id from the latest screen read (default: focused field)")
                 bool("append", "Append instead of replacing")
                 bool("submit", "Press Enter/Search afterwards (for search boxes without a button)")
             }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
-                val r = read(call, d)
-                val hit = locate(call, d, args.only("node"), r)
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
+                val r = read(call)
+                val hit = locate(call, args.only("node"), r)
                 val text = args.reqStr("text")
                 val append = args.bool("append") == true
-                val focused = if (hit == null) focusedInput(d, r) else null
+                val focused = if (hit == null) focusedInput(r) else null
                 // Without a field id, typing goes to whatever holds input focus: with no focused field and no
                 // keyboard showing, the text would go nowhere (or be pasted somewhere), so do not try.
-                if (hit == null && focused?.isEditable != true && !svc().imeShown(d)) return ToolResult.error("no_focus",
+                if (hit == null && focused?.isEditable != true && !svc().imeShown(Display.DEFAULT_DISPLAY)) return ToolResult.error("no_focus",
                     "No input field has focus on this screen and no keyboard is showing, so nothing was typed. " +
                         "Tap the field first (screen_tap), or pass its id as node, then call screen_type again.")
                 val target = hit?.node ?: focused
                 val before = target?.takeUnless { it.isPassword }?.let { TextInput.shownText(it) }
-                val out = textInput.type(svc(), target, text, append, d)
+                val out = textInput.type(svc(), target, text, append)
                     ?: return ToolResult.error("input_failed", if (target == null) "No focused input field; tap the field first, then call screen_type again."
-                        else "The field did not accept text by any method (set text, keyboard, Shizuku, paste). Tap the field and retry, or ask the user to type it.")
-                val watch = if (t.agent) agent.watch(call.sessionId) else null
+                        else "The field did not accept text by any method (set text, keyboard, paste). Tap the field and retry, or ask the user to type it.")
                 // Read back the field that received the text (the focused one when no field was known beforehand).
-                val shown = out.fieldText ?: if (target == null) focusedInput(d, read(call, d))?.takeIf { it.isEditable && !it.isPassword }?.let { TextInput.shownText(it) } else null
+                val shown = out.fieldText ?: if (target == null) focusedInput(read(call))?.takeIf { it.isEditable && !it.isPassword }?.let { TextInput.shownText(it) } else null
                 val expected = if (append) (before.orEmpty() + text) else text
                 val readBack = shown?.let { s ->
                     "; the field now shows: \"${s.take(300)}\"" + if (TextInput.differs(expected, s))
                         " — this differs from the requested text (the field may have rejected, reformatted or truncated it, or kept old text); check and correct it" else ""
                 } ?: ""
-                val submitted = if (args.bool("submit") == true) " and pressed " + (pressEnter(false, d, r) ?: "Enter (failed: no method worked)") else ""
-                return after(call, t, r.frame, listOfNotNull(hit?.note, "Entered text (${out.method})$submitted$readBack").joinToString("\n"), watch)
+                val submitted = if (args.bool("submit") == true) " and pressed " + (pressEnter(false) ?: "Enter (failed: no method worked)") else ""
+                return after(call, r.frame, listOfNotNull(hit?.note, "Entered text (${out.method})$submitted$readBack").joinToString("\n"))
             }
 
-            private fun focusedInput(d: Int, r: Read): AccessibilityNodeInfo? =
-                if (d == Display.DEFAULT_DISPLAY) svc().findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                else r.snap.nodes.firstOrNull { it.isEditable && it.isFocused }
+            private fun focusedInput(r: Read): AccessibilityNodeInfo? =
+                svc().findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: r.snap.nodes.firstOrNull { it.isEditable && it.isFocused }
         },
         object : ScreenTool("screen_set_wheel", Risk.write, true,
             "Set a wheel picker to a value in one call (time/date/number spinners, NumberPicker, the scrolling columns in alarm, " +
@@ -501,21 +459,18 @@ class ScreenTools @Inject constructor(
                 string("node", "Id of the wheel or of the value it currently shows (e12 / t3)", required = true)
                 string("value", "Target value as shown on the wheel", required = true)
             }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
-                if (t.agent && agent.showsProtected(d)) return protectedScreen(call, t, name)
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 val value = args.reqStr("value").trim().ifEmpty { throw InvalidArgsException("value is empty") }
-                val r = read(call, d)
-                val hit = locate(call, d, args.only("node"), r) ?: throw InvalidArgsException("Give node: the id of the wheel or of the value it shows (call screen_read first)")
+                val r = read(call)
+                val hit = locate(call, args.only("node"), r) ?: throw InvalidArgsException("Give node: the id of the wheel or of the value it shows (call screen_read first)")
                 val (x, y) = hit.node?.let { n -> Rect().also(n::getBoundsInScreen).let { it.centerX() to it.centerY() } } ?: (hit.x to hit.y)
-                val m = metrics(d)
-                val watch = if (t.agent) agent.watch(call.sessionId) else null
-                val setter = WheelSetter(svc(), d, m.heightPixels, m.density) {
-                    screenshot(t)?.takeUnless { isBlank(it) }?.let { b -> runCatching { ocr.read(b) }.getOrNull() }
+                val m = metrics()
+                val setter = WheelSetter(svc(), Display.DEFAULT_DISPLAY, m.heightPixels, m.density) {
+                    screenshot()?.takeUnless { isBlank(it) }?.let { b -> runCatching { ocr.read(b) }.getOrNull() }
                 }
                 return when (val out = setter.set(hit.node, x, y, value)) {
-                    is WheelSetter.Done -> after(call, t, r.frame, listOfNotNull(hit.note,
-                        "Wheel set: value \"${out.value}\" (from \"${out.from}\", ${out.attempts} attempts, method ${out.method})").joinToString("\n"), watch)
+                    is WheelSetter.Done -> after(call, r.frame, listOfNotNull(hit.note,
+                        "Wheel set: value \"${out.value}\" (from \"${out.from}\", ${out.attempts} attempts, method ${out.method})").joinToString("\n"))
                     is WheelSetter.Failed -> ToolResult.error(out.code, listOfNotNull(hit.note, out.message).joinToString("\n"))
                 }
             }
@@ -525,73 +480,60 @@ class ScreenTools @Inject constructor(
             number("x2", "End X (screen pixels)", required = true); number("y2", "End Y (screen pixels)", required = true)
             int("durationMs", "Default 300")
         }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 fun i(k: String) = args.int(k) ?: throw InvalidArgsException("missing $k")
-                val before = read(call, d).frame
-                svc().swipe(i("x1").toFloat(), i("y1").toFloat(), i("x2").toFloat(), i("y2").toFloat(), (args.int("durationMs") ?: 300).toLong().coerceIn(50, 5000), d)
-                return after(call, t, before, "Swiped")
+                val before = read(call).frame
+                svc().swipe(i("x1").toFloat(), i("y1").toFloat(), i("x2").toFloat(), i("y2").toFloat(), (args.int("durationMs") ?: 300).toLong().coerceIn(50, 5000), Display.DEFAULT_DISPLAY)
+                return after(call, before, "Swiped")
             }
         },
         object : ScreenTool("screen_scroll", Risk.write, true, "Scroll the screen or a scrollable element.", {
             string("direction", "Direction", required = true, enum = listOf("down", "up", "left", "right"))
             string("node", "Scrollable element id (optional)")
         }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
-                val d = t.displayId
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 val dir = args.reqStr("direction")
-                val r = read(call, d)
-                val n = locate(call, d, args.only("node"), r)?.node
+                val r = read(call)
+                val n = locate(call, args.only("node"), r)?.node
                 if (n != null && n.isScrollable) {
                     n.performAction(if (dir == "down" || dir == "right") AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
                 } else {
-                    val m = metrics(d)
+                    val m = metrics()
                     val cx = m.widthPixels / 2f; val cy = m.heightPixels / 2f
                     val dy = m.heightPixels * 0.3f; val dx = m.widthPixels * 0.3f
                     when (dir) {
-                        "down" -> svc().swipe(cx, cy + dy, cx, cy - dy, 350, d)
-                        "up" -> svc().swipe(cx, cy - dy, cx, cy + dy, 350, d)
-                        "right" -> svc().swipe(cx + dx, cy, cx - dx, cy, 350, d)
-                        else -> svc().swipe(cx - dx, cy, cx + dx, cy, 350, d)
+                        "down" -> svc().swipe(cx, cy + dy, cx, cy - dy, 350, Display.DEFAULT_DISPLAY)
+                        "up" -> svc().swipe(cx, cy - dy, cx, cy + dy, 350, Display.DEFAULT_DISPLAY)
+                        "right" -> svc().swipe(cx + dx, cy, cx - dx, cy, 350, Display.DEFAULT_DISPLAY)
+                        else -> svc().swipe(cx - dx, cy, cx + dx, cy, 350, Display.DEFAULT_DISPLAY)
                     }
                 }
-                return after(call, t, r.frame, "Scrolled $dir")
+                return after(call, r.frame, "Scrolled $dir")
             }
         },
         object : ScreenTool("screen_key", Risk.write, true,
             "Press a key. enter/search = the keyboard's action key in the focused field (submit a search box or a form); delete = backspace; " +
-                "back/home/recents; notifications/quick_settings open the shade; lock_screen turns the screen off. " +
-                "On the agent screen only enter/search/delete/back/home apply.", {
+                "back/home/recents; notifications/quick_settings open the shade; lock_screen turns the screen off.", {
             string("key", "Key", required = true, enum = listOf("enter", "search", "delete", "back", "home", "recents", "notifications", "quick_settings", "lock_screen"))
         }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 val key = args.reqStr("key")
-                val d = t.displayId
-                val r = read(call, d)
-                val watch = if (t.agent) agent.watch(call.sessionId) else null
+                val r = read(call)
                 val done: String = when (key) {
-                    "enter", "search" -> pressEnter(key == "search", d, r) ?: return ToolResult.error("failed",
-                        "Could not press $key: the focused field takes no editor action and Shizuku is not available. Tap the on-screen search/send button instead (screen_read to find it).")
-                    "delete" -> when {
-                        d == Display.DEFAULT_DISPLAY && svc().deleteBackward() -> "Deleted one character"
-                        shellKey(67, d) -> "Pressed delete (Shizuku)"
-                        else -> return ToolResult.error("failed", "No focused text field to delete from.")
-                    }
+                    "enter", "search" -> pressEnter(key == "search") ?: return ToolResult.error("failed",
+                        "Could not press $key: the focused field takes no editor action. Tap the on-screen search/send button instead (screen_read to find it).")
+                    "delete" -> if (svc().deleteBackward()) "Deleted one character" else return ToolResult.error("failed", "No focused text field to delete from.")
                     else -> {
                         val global = when (key) {
                             "back" -> GLOBAL_ACTION_BACK; "home" -> GLOBAL_ACTION_HOME; "recents" -> GLOBAL_ACTION_RECENTS
                             "quick_settings" -> GLOBAL_ACTION_QUICK_SETTINGS; "lock_screen" -> GLOBAL_ACTION_LOCK_SCREEN
                             else -> GLOBAL_ACTION_NOTIFICATIONS
                         }
-                        if (d != Display.DEFAULT_DISPLAY) {
-                            val code = when (key) { "back" -> 4; "home" -> 3; else -> throw InvalidArgsException("'$key' only works on the user's screen (screen: \"main\")") }
-                            if (!shellKey(code, d)) return ToolResult.error("shizuku_unavailable", "Keys on the agent screen need Shizuku.")
-                            "Pressed $key"
-                        } else if (svc().performGlobalAction(global)) "Pressed $key" else return ToolResult.error("failed", "Android refused '$key'.")
+                        if (svc().performGlobalAction(global)) "Pressed $key" else return ToolResult.error("failed", "Android refused '$key'.")
                     }
                 }
                 if (key == "lock_screen") return ToolResult.text(done)
-                return after(call, t, r.frame, done, watch)
+                return after(call, r.frame, done)
             }
         },
         object : ScreenTool("screen_wait", Risk.read, true,
@@ -602,18 +544,18 @@ class ScreenTools @Inject constructor(
                 bool("gone", "Wait for the text to disappear instead")
                 int("timeoutMs", "Default 10000, max 30000")
             }) {
-            override suspend fun run(args: JsonObject, call: CallContext, t: ScreenTarget): ToolResult {
+            override suspend fun run(args: JsonObject, call: CallContext): ToolResult {
                 val text = args.str("text"); val pkg = args.str("package")
                 if (text == null && pkg == null) throw InvalidArgsException("Give text and/or package")
                 val gone = args.bool("gone") == true
                 val until = SystemClock.elapsedRealtime() + (args.int("timeoutMs") ?: 10_000).coerceIn(500, 30_000)
                 while (true) {
-                    val snap = svc().snapshot(t.displayId)
+                    val snap = svc().snapshot(Display.DEFAULT_DISPLAY)
                     val hasText = text == null || snap.elements.any { e -> (e.text ?: "").contains(text, true) || (e.desc ?: "").contains(text, true) }
                     val ok = (pkg == null || snap.packageName == pkg) && (if (gone && text != null) !hasText else hasText)
                     if (ok || SystemClock.elapsedRealtime() > until) {
-                        val r = Read(snap, view(call, t.displayId).ids.assign(snap.packageName, snap.elements))
-                        return ToolResult.text("${if (ok) "Condition met" else "Timed out waiting"} — ${full(call, t, r, 6000, forceOcr = false)}")
+                        val r = Read(snap, view(call).ids.assign(snap.packageName, snap.elements))
+                        return ToolResult.text("${if (ok) "Condition met" else "Timed out waiting"} — ${full(call, r, 6000, forceOcr = false)}")
                             .withOutcome(null, r.frame.fingerprint)
                     }
                     delay(500)
@@ -622,29 +564,22 @@ class ScreenTools @Inject constructor(
         },
         object : Tool("hand_to_user", ToolGroup.Screen, Risk.read, false,
             "Hand the current step to the user when only they can or should do it: signing in, a captcha, a payment, a protected page, " +
-                "or a choice that is theirs to make. The user sees a card with the reason; the app moves to their screen while they handle it " +
-                "and comes back afterwards. Returns whether they handled it (then the screen is read again), finished the task themselves, skipped or stopped.", {
+                "or a choice that is theirs to make. The user sees a card with the reason and does it on their screen. Returns whether " +
+                "they handled it (then the screen is read again), finished the task themselves, skipped or stopped.", {
                 string("reason", "What the user should do, in the user's language (shown to them), e.g. \"请登录你的淘宝账号\"", required = true)
                 string("kind", "Kind of step", required = true, enum = KINDS.split(", "))
                 screen()
             }, timeoutMs = ToolDescriptor.UNLOCK_TIMEOUT_MS) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult =
-                takeover(call, agent.target(call.sessionId, args.str("screen")), name, args.reqStr("reason"), args.str("kind") ?: "other")
+                rejectNonMainScreen(args) ?: takeover(call, name, args.reqStr("reason"), args.str("kind") ?: "other")
         },
     )
 
     private fun JsonObject.only(vararg keys: String) = JsonObject(filter { it.key in keys })
 
-    /** Enter/Search in the focused field: accessibility IME action, DSH keyboard, then Shizuku keyevent. Returns how, or null. */
-    private suspend fun pressEnter(search: Boolean, d: Int, r: Read): String? {
-        if (d == Display.DEFAULT_DISPLAY) {
-            if (DshAccessibilityService.instance?.pressImeAction(search) == true) return if (search) "Search" else "Enter"
-        } else if (Build.VERSION.SDK_INT >= 30) {
-            // The agent screen has its own focus: act on its focused field directly.
-            val f = r.snap.nodes.firstOrNull { it.isEditable && it.isFocused }
-            if (f != null && f.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) return if (search) "Search" else "Enter"
-        }
-        if (shellKey(66, d)) return "Enter (Shizuku)"
+    /** Enter/Search in the focused field through the accessibility IME action. Returns how, or null. */
+    private fun pressEnter(search: Boolean): String? {
+        if (DshAccessibilityService.instance?.pressImeAction(search) == true) return if (search) "Search" else "Enter"
         return null
     }
 }

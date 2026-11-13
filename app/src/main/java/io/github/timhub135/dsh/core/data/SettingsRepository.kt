@@ -72,8 +72,6 @@ data class Settings(
     val allowExternalApps: Boolean = false,
     /** 唤起助手时直接语音输入: the assistant gesture opens the quick panel already listening. */
     val voiceOnAssist: Boolean = true,
-    /** 在后台屏操作 App: with Shizuku, apps the agent opens run on its own virtual screen (AgentScreen). */
-    val agentScreen: Boolean = true,
     /** 任务结束后自动总结经验: after a turn that worked in an app, one short model call distills App 经验 notes. */
     val reflectExperience: Boolean = true,
     /** Third-party OpenAI-compatible providers (keys live in SecretStore, never here). */
@@ -142,7 +140,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val busySend = stringPreferencesKey("busy_send")
         val preset = stringPreferencesKey("default_preset")
         val externalApps = booleanPreferencesKey("allow_external_apps")
-        val agentScreen = booleanPreferencesKey("agent_screen")
         val reflect = booleanPreferencesKey("reflect_experience")
         val voiceOnAssist = booleanPreferencesKey("voice_on_assist")
         val pluginRegistry = stringPreferencesKey("plugin_registry_mode")
@@ -179,7 +176,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         busySend = this[K.busySend]?.let { v -> BusySend.entries.firstOrNull { it.name == v } } ?: BusySend.Queue,
         defaultPreset = PermissionPreset.of(this[K.preset]),
         allowExternalApps = this[K.externalApps] ?: false,
-        agentScreen = this[K.agentScreen] ?: true,
         reflectExperience = this[K.reflect] ?: true,
         voiceOnAssist = this[K.voiceOnAssist] ?: true,
         pluginRegistry = RegistryMode.of(this[K.pluginRegistry]),
@@ -244,7 +240,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
     suspend fun setBusySend(v: BusySend) = context.store.edit { it[K.busySend] = v.name }
     suspend fun setDefaultPreset(p: PermissionPreset) = context.store.edit { it[K.preset] = p.id }
     suspend fun setAllowExternalApps(on: Boolean) = context.store.edit { it[K.externalApps] = on }
-    suspend fun setAgentScreen(on: Boolean) = context.store.edit { it[K.agentScreen] = on }
     suspend fun setReflectExperience(on: Boolean) = context.store.edit { it[K.reflect] = on }
     suspend fun setVoiceOnAssist(on: Boolean) = context.store.edit { it[K.voiceOnAssist] = on }
     suspend fun setAutoUpdateCheck(on: Boolean) = context.store.edit { it[K.autoUpdateCheck] = on }

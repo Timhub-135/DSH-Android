@@ -18,12 +18,12 @@ class PrivateStorageTest {
         ).forEach { assertFalse(it, PrivateStorage.isPrivate(it)) }
     }
 
-    @Test fun routesThroughTheShellOnlyOnAndroid11AndNewer() {
+    @Test fun restrictedOnAndroid11AndNewerOnly() {
         val p = "/storage/emulated/0/Android/data/com.example/files/log.txt"
-        assertFalse("Android 10: legacy storage reads it directly", PrivateStorage.needsShell(p, 29))
-        assertTrue(PrivateStorage.needsShell(p, 30))
-        assertTrue(PrivateStorage.needsShell(p, 37))
-        assertFalse(PrivateStorage.needsShell("/storage/emulated/0/Download/a.txt", 37))
+        assertFalse("Android 10: legacy storage reads it directly", PrivateStorage.isRestricted(p, 29))
+        assertTrue(PrivateStorage.isRestricted(p, 30))
+        assertTrue(PrivateStorage.isRestricted(p, 37))
+        assertFalse(PrivateStorage.isRestricted("/storage/emulated/0/Download/a.txt", 37))
     }
 
     @Test fun scopeRootsAreTheFoldersThemselves() {
@@ -33,18 +33,10 @@ class PrivateStorageTest {
         assertFalse(PrivateStorage.isScopeRoot("/storage/emulated/0/Download"))
     }
 
-    @Test fun shizukuMessageNamesTheSetting() {
-        val m = PrivateStorage.needsShizuku("Shizuku is installed but not running")
-        assertTrue(m, m.contains("访问 Android/data 需要 Shizuku") && m.contains("Shizuku is installed but not running") && m.contains("Settings"))
-    }
-
-    @Test fun adbShellResultFormat() {
-        assertEquals(30, AdbShell.timeoutS(null))
-        assertEquals(AdbShell.MAX_TIMEOUT_S, AdbShell.timeoutS(100_000))
-        assertEquals(1, AdbShell.timeoutS(0))
-        assertEquals("exit 0\nlevel: 80", AdbShell.format(0, "level: 80\n", 30))
-        assertEquals("exit 1\n(no output)", AdbShell.format(1, "", 30))
-        assertTrue(AdbShell.format(124, "partial", 5).startsWith("exit 124 (stopped after 5s"))
-        assertTrue(AdbShell.format(0, "x".repeat(AdbShell.OUTPUT_CAP), 30).endsWith("grep or head)"))
+    @Test fun restrictionMessageSaysWhatToDoInstead() {
+        val m = PrivateStorage.ANDROID_DATA_RESTRICTED
+        assertTrue(m, m.contains("Android/data") && m.contains("Android/obb"))
+        assertTrue(m, m.contains("share sheet") && m.contains("manually"))
+        assertEquals("android_data_restricted", PrivateStorage.ERROR_CODE)
     }
 }

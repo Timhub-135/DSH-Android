@@ -40,7 +40,7 @@ class BackNavigationTest {
         nav.graph = nav.createGraph(startDestination = HomeRoute) { dshGraph(nav) { error("not composed in tests") } }
     }
 
-    private val routeClasses = listOf(HomeRoute::class, OnboardingRoute::class, OnboardingKeyRoute::class, EnhanceRoute::class, PlatformWebRoute::class,
+    private val routeClasses = listOf(HomeRoute::class, OnboardingRoute::class, OnboardingKeyRoute::class, PlatformWebRoute::class,
         AutomationRoute::class, RuleRoute::class, SettingsRoute::class, SectionRoute::class, ProviderRoute::class, ModeRoute::class, PluginRoute::class,
         MarketEntryRoute::class, IndexesRoute::class, McpRoute::class, AppNotesRoute::class, AppNotesGroupRoute::class, NotifAppsRoute::class)
 
@@ -157,11 +157,11 @@ class BackNavigationTest {
 
     @Test fun finishingOnboardingLeavesHomeUnderTheNextStep() {
         nav.startOnboarding(); nav.navigate(OnboardingKeyRoute)
-        nav.finishOnboarding(EnhanceRoute)
-        assertEquals(home + EnhanceRoute, pages())
-        nav.finishOnboarding(EnhanceRoute) // a second 完成 (signed-in effect) is a no-op
-        assertEquals(home + EnhanceRoute, pages())
-        assertTrue(back()); assertEquals(home, pages())
+        nav.finishOnboarding(HomeRoute)
+        assertEquals(home, pages())
+        nav.finishOnboarding(HomeRoute) // a second 完成 (signed-in effect) is a no-op
+        assertEquals(home, pages())
+        assertFalse("Back on the conversation leaves the app", back())
 
         nav.startOnboarding(); nav.finishOnboarding(SectionRoute(SettingsSection.Model))
         assertEquals(settings + section(SettingsSection.Model), pages())

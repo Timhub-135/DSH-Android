@@ -76,9 +76,7 @@ class CapabilityHub @Inject constructor(
     files: FileTools, apps: AppTools, screen: ScreenTools, system: SystemTools, notifications: NotificationTools,
     comms: CommsTools, media: MediaTools, clipboard: ClipboardTools, browser: BrowserTools, ruleTools: RuleTools,
     knowledge: KnowledgeTools,
-    private val shellGate: ShellGate,
     private val guard: ActionGuard,
-    private val agentScreen: AgentScreen,
     private val appKnowledge: AppKnowledge,
     private val experience: AppExperience,
 ) {
@@ -102,9 +100,9 @@ class CapabilityHub @Inject constructor(
     fun descriptor(name: String): ToolDescriptor? = allTools[name]?.descriptor
 
     /**
-     * The model-facing descriptor. Static on purpose: live state (Shizuku up/down, permissions) changes
+     * The model-facing descriptor. Static on purpose: live state (permissions, screen) changes
      * often, and every description change re-bills the whole cached prompt. Availability is reported in
-     * the call's result or error instead (path=…, shizuku_unavailable, permission_missing).
+     * the call's result or error instead (path=…, permission_missing).
      */
     private val listedCache = java.util.concurrent.ConcurrentHashMap<String, ToolDescriptor>()
     private fun listed(t: Tool): ToolDescriptor = listedCache.getOrPut(t.name) { Companion.listed(t) }
@@ -183,7 +181,7 @@ class CapabilityHub @Inject constructor(
 
     /**
      * Executes one call. Also used directly by rule "steps" actions (no engine involved). Every wait
-     * for the user (unlock, permission card, Shizuku card, takeover) is bounded by the call's deadline
+     * for the user (unlock, permission card) is bounded by the call's deadline
      * (`timeoutMs` from the request, else the tool's descriptor) and is cancelled with the call; the
      * tool itself only starts once those waits are over and the call is still live. [viaEngine]: the
      * call came over the bridge, so the engine's policy (plugin-guard hardline, approvals) saw it first.
@@ -214,8 +212,8 @@ class CapabilityHub @Inject constructor(
         val budgetMs = (budget - ANSWER_MARGIN_MS).coerceAtLeast(budget / 2)
         val call = CallContext(sessionId, callId, unattended, SystemClock.elapsedRealtime() + budgetMs, viaEngine)
         val liveKey = liveSeq.incrementAndGet()
-        // A screen call without an agent screen to act on works on the user's own screen (AgentScreen.target).
-        val mainScreen = name.startsWith("screen_") && (args.str("screen") == "main" || agentScreen.current(sessionId) == null)
+        // Every screen call acts on the user's own screen in this version.
+        val mainScreen = name.startsWith("screen_")
         _live.update { it + (liveKey to LiveCall(sessionId, name, mainScreen, acts = tool.descriptor.risk != Risk.read)) }
         val result = try {
             withTimeoutOrNull(budgetMs) { run(tool, name, args, call) }?.also { experience.observe(sessionId, name, args, it) }
@@ -233,16 +231,15 @@ class CapabilityHub @Inject constructor(
 
     /**
      * The user spoke (a new turn or steering): the loop guard, the app-guide cap and route tracking
-     * start over ([text] ranks app notes), and agent-screen actions resume after a 我来接管.
+     * start over ([text] ranks app notes).
      */
     fun onUserPrompt(sessionId: String, text: String = "") {
         guard.reset(sessionId)
         appKnowledge.newTurn(sessionId, text)
         experience.newTurn(sessionId, text)
-        agentScreen.clearUserTakeover(sessionId)
     }
 
-    /** Screen and app calls pass the loop guard (docs/AGENT-SCREEN-V2.md §3.5): refused once stopped, reminders appended. */
+    /** Screen and app calls pass the loop guard: refused once stopped, reminders appended. */
     private suspend fun run(tool: Tool, name: String, args: JsonObject, call: CallContext): ToolResult {
         guard.before(call.sessionId, tool, args)?.let { return it }
         return guard.after(call.sessionId, tool, args, execute(tool, name, args, call))
@@ -275,10 +272,6 @@ class CapabilityHub @Inject constructor(
                 io.github.timhub135.dsh.core.engine.EngineCalls.ensureCallActive()
                 try {
                     result = tool.invoke(args, call)
-                } catch (e: io.github.timhub135.dsh.core.platform.ShellUnavailableException) {
-                    // Shizuku-only step: the Shizuku card waits in the composer slot and the call resumes
-                    // as soon as Shizuku is ready; 不用了 (or an automation) gets a clear model-facing result.
-                    if (attempt++ >= 2 || !shellGate.acquire(call, name, optional = false)) return shellGate.unavailable(call)
                 } catch (e: PermissionMissingException) {
                     // Attended sessions get a just-in-time permission card in the composer slot; the call
                     // waits there and is retried once the user comes back from the system settings page.
@@ -318,9 +311,7 @@ class CapabilityHub @Inject constructor(
         private const val TAG = "CapabilityHub"
 
         /** [t]'s descriptor as `capability/list` sends it. */
-        fun listed(t: Tool): ToolDescriptor =
-            if (t.shell == ShellUse.None) t.descriptor
-            else t.descriptor.copy(description = t.descriptor.description + ShellGate.staticNote(t.shell, t.shellFallback))
+        fun listed(t: Tool): ToolDescriptor = t.descriptor
         /** Fixed-step automations (no engine): how long a needsUnlock step waits for the user to unlock. */
         const val UNATTENDED_UNLOCK_WAIT_MS = 2 * 60 * 60_000L
         const val ANSWER_MARGIN_MS = 5_000L

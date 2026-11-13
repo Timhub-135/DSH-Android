@@ -41,7 +41,6 @@ class AppTools @Inject constructor(
 
     private companion object {
         const val SCREEN = "screen"
-        const val SCREEN_DESC = io.github.timhub135.dsh.core.capability.SchemaBuilder.SCREEN_DESC
     }
 
     private fun label(ai: ApplicationInfo) = pm.getApplicationLabel(ai).toString()
@@ -83,11 +82,11 @@ class AppTools @Inject constructor(
             }
         },
         object : Tool("app_launch", ToolGroup.Apps, Risk.write, true,
-            "Open an app by package name (optionally a specific exported activity). With Shizuku it opens on your own background screen, " +
-                "so the user keeps using their phone; the screen_* tools then act there. The result says which screen was used.", {
+            "Open an app by package name (optionally a specific exported activity) on the user's screen. " +
+                "The screen_* tools then act on what is in front.", {
             string("package", "Package name", required = true)
             string("activity", "Fully-qualified exported activity (optional)")
-            string(SCREEN, SCREEN_DESC, enum = listOf("agent", "main"))
+            screen()
         }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val p = args.reqStr("package")
@@ -97,11 +96,10 @@ class AppTools @Inject constructor(
             }
         },
         object : Tool("app_open_link", ToolGroup.Apps, Risk.write, true,
-            "Open a URI/deep link (https:, tel:, geo:, mailto:, app schemes like weixin://, alipays://, etc.). " +
-                "Like app_launch it opens on your background screen when there is one.", {
+            "Open a URI/deep link (https:, tel:, geo:, mailto:, app schemes like weixin://, alipays://, etc.) on the user's screen.", {
                 string("uri", "The URI", required = true)
                 string("package", "Restrict to this app (optional)")
-                string(SCREEN, SCREEN_DESC, enum = listOf("agent", "main"))
+                screen()
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(args.reqStr("uri")))
@@ -116,7 +114,7 @@ class AppTools @Inject constructor(
                 string("type", "MIME type")
                 string("package", "Target package")
                 obj("extras", "String extras {key: value}")
-                string(SCREEN, SCREEN_DESC, enum = listOf("agent", "main"))
+                screen()
             }) {
             override suspend fun invoke(args: JsonObject, call: CallContext): ToolResult {
                 val intent = Intent(args.reqStr("action"))

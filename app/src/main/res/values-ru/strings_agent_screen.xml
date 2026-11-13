@@ -16,15 +16,4 @@
     <string name="takeover_kind_choose">Нужно выбрать</string>
     <string name="takeover_kind_other">Другое</string>
     <string name="tool_hand_to_user">Передать тебе</string>
-    <string name="agent_screen_setting">Работать с App на фоновом экране</string>
-    <string name="agent_screen_setting_desc">С Shizuku агент открывает App и работает с ним на невидимом фоновом экране, не занимая твой экран</string>
-    <string name="agent_preview_working">Агент работает на фоновом экране</string>
-    <string name="agent_preview_open">Посмотреть</string>
-    <string name="agent_preview_take_over">Беру управление</string>
-    <string name="agent_preview_taken">Уже на твоём экране</string>
-    <string name="agent_preview_close">Закрыть</string>
-    <string name="agent_screen_doctor">Фоновый экран</string>
-    <string name="agent_screen_create_failed">Не удалось создать фоновый экран: %1$s</string>
-    <string name="agent_screen_setting_desc_degraded">На этом телефоне доступен только фоновый экран в режиме совместимости: клавиатура может появиться на твоём экране, а при выключенном экране фоновый экран приостанавливается</string>
-    <string name="agent_screen_degraded">Режим совместимости: система не разрешает Shizuku создать доверенный виртуальный экран (нет ADD_TRUSTED_DISPLAY). Фоновый экран работает, но с ограничениями: при нажатии на поле ввода клавиатура может появиться на твоём экране; App, открытый из другого App, может сначала появиться на твоём экране, а затем будет перенесён обратно; когда твой экран выключается, фоновый экран тоже выключается и ждёт, пока он снова включится.</string>
 </resources>

@@ -453,15 +453,6 @@ private fun PhoneSection(vm: SettingsViewModel, onNotificationApps: () -> Unit) 
         SettingsRow(stringResource(R.string.keep_alive), keepAliveHint(kind, zh), onClick = { KeepAliveLauncher.open(context, kind) },
             trailing = { DIcon(R.drawable.dsw_chevron_right_outline, size = 14.dp, tint = c.labelTertiary) })
     }
-    SettingsGroupTitle(stringResource(R.string.shz_group))
-    ShellAccessCard()
-    val s by vm.settings.collectAsStateWithLifecycle()
-    SettingsCard(Modifier.padding(top = 8.dp)) {
-        val degraded = remember { vm.agentScreenDegraded }
-        SettingsRow(stringResource(R.string.agent_screen_setting), stringResource(R.string.agent_screen_setting_desc) +
-            (if (degraded) "\n" + stringResource(R.string.agent_screen_setting_desc_degraded) else ""), divider = false,
-            trailing = { DSwitch(s.agentScreen, vm::setAgentScreen) })
-    }
 }
 
 @Composable
@@ -486,16 +477,6 @@ private fun AboutSection(vm: SettingsViewModel) {
         SettingsRow(stringResource(R.string.ext_safe_mode_start), stringResource(R.string.ext_safe_mode_start_desc),
             trailing = { DButton(stringResource(R.string.ext_safe_mode_start), { ext.startSafeMode(); vm.runDoctor() }, variant = BtnVariant.Outline, size = BtnSize.Sm) })
         SettingsRow(stringResource(R.string.about_disclaimer_title), stringResource(R.string.about_disclaimer), divider = true)
-        // Attribution for the bundled official Shizuku APK (Apache-2.0); tap shows the license shipped with it.
-        val shizukuLicense = remember { runCatching { vm.context.assets.open("shizuku/LICENSE").bufferedReader().use { it.readText() } }.getOrNull() }
-        var showLicense by remember { mutableStateOf(false) }
-        if (shizukuLicense != null) SettingsRow(stringResource(R.string.about_oss_title),
-            stringResource(R.string.about_oss_shizuku, io.github.timhub135.dsh.BuildConfig.SHIZUKU_VERSION), divider = true,
-            onClick = { showLicense = !showLicense },
-            trailing = { DIcon(R.drawable.dsw_chevron_right_outline, size = 14.dp, tint = c.labelTertiary) })
-        if (showLicense && shizukuLicense != null) Box(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
-            CodeCard(shizukuLicense, label = "Shizuku · LICENSE (Apache-2.0)", maxHeight = 320.dp)
-        }
     }
     SettingsGroupTitle(stringResource(R.string.doctor))
     SettingsCard {

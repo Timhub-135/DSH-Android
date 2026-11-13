@@ -87,7 +87,7 @@ data class LastCheck(val at: Long, val result: CheckResult)
  * / Obtainium: [UpdateManifest] from the first answering of its sources, at most one automatic
  * check a day (自动检查更新), a prompt with 更新 / 稍后 / 跳过此版本, a resumable download
  * ([ApkDownloader]) verified by SHA-256 and by package, versionCode and signer against the
- * installed app ([ApkCheck]), then a [PackageInstaller] session like [io.github.timhub135.dsh.core.platform.ShizukuInstaller]'s.
+ * installed app ([ApkCheck]), then a [PackageInstaller] session.
  * A successful install replaces (kills) this process; the next start cleans the download up.
  */
 @Singleton

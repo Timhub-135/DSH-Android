@@ -15,15 +15,4 @@
     <string name="takeover_kind_choose">需要你选</string>
     <string name="takeover_kind_other">其他</string>
     <string name="tool_hand_to_user">交给你处理</string>
-    <string name="agent_screen_setting">在后台屏操作 App</string>
-    <string name="agent_screen_setting_desc">有 Shizuku 时，智能体在看不见的后台屏上打开和操作 App，不占用你的屏幕</string>
-    <string name="agent_preview_working">智能体正在后台屏操作</string>
-    <string name="agent_preview_open">点开查看</string>
-    <string name="agent_preview_take_over">我来接管</string>
-    <string name="agent_preview_taken">已放到你的屏幕上</string>
-    <string name="agent_preview_close">关闭</string>
-    <string name="agent_screen_doctor">后台屏</string>
-    <string name="agent_screen_create_failed">后台屏创建失败：%1$s</string>
-    <string name="agent_screen_setting_desc_degraded">本机只能用兼容模式的后台屏：点输入框时键盘可能弹在你的屏幕上，你的屏幕熄灭时后台屏也会暂停</string>
-    <string name="agent_screen_degraded">兼容模式：系统不允许 Shizuku 创建受信任的虚拟屏（缺少 ADD_TRUSTED_DISPLAY），后台屏仍可用，但有限制：点输入框时键盘会弹在你的屏幕上；App 里跳到别的 App 时，新 App 可能先出现在你的屏幕上再被挪回；你的屏幕熄灭时后台屏也会熄灭，要等亮屏后才能继续。</string>
 </resources>

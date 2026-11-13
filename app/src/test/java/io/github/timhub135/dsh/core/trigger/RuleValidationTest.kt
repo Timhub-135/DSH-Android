@@ -48,16 +48,16 @@ class RuleValidationTest {
         assertEquals("08:05", RuleTime.parse("8：05")?.let(RuleTime::format))
     }
 
-    @Test fun adbShellIsNeverADirectStep() {
-        val withAdb = tools + "adb_shell"
+    @Test fun removedToolsAreUnknownSteps() {
+        // adb_shell no longer exists: a step or an agent action naming it must not validate.
         try {
-            validateRule(RuleSpec("x", Trigger.Time(at = "07:00"), emptyList(), steps("adb_shell")), withAdb)
-            fail("accepted adb_shell as a step")
+            validateRule(RuleSpec("x", Trigger.Time(at = "07:00"), emptyList(), steps("adb_shell")), tools)
+            fail("accepted a removed tool as a step")
         } catch (e: RuleSpecException) {
-            assertTrue(e.problems.toString(), e.problems.any { "adb_shell cannot be a direct step" in it })
+            assertTrue(e.problems.toString(), e.problems.any { "unknown step tool(s): adb_shell" in it })
         }
-        // As a tool an agent action may use, it is fine (the engine checks each command).
-        val agent = validateRule(RuleSpec("y", Trigger.Time(at = "07:00"), emptyList(), RuleAction.Agent("check battery"), listOf("adb_shell")), withAdb)
+        // allowedTools may name engine built-ins, so an agent action listing it is accepted but never runs.
+        val agent = validateRule(RuleSpec("y", Trigger.Time(at = "07:00"), emptyList(), RuleAction.Agent("check battery"), listOf("adb_shell")), tools)
         assertEquals(listOf("adb_shell"), agent.allowedTools)
     }
 }

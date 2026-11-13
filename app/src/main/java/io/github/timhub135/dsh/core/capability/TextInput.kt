@@ -4,10 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
-import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
-import io.github.timhub135.dsh.core.platform.ShizukuShell
 import io.github.timhub135.dsh.service.DshAccessibilityService
 import io.github.timhub135.dsh.service.DshInputMethodService
 import kotlinx.coroutines.delay
@@ -21,12 +19,10 @@ import javax.inject.Singleton
  *  1. AccessibilityNodeInfo ACTION_SET_TEXT (verified);
  *  2. Android 13+: the accessibility service's own input connection (flagInputMethodEditor);
  *  3. DSH 输入法 ([DshInputMethodService]) when it is the current keyboard;
- *  4. Shizuku: `input text` for ASCII; otherwise switch to DSH 输入法 with `ime set`, commit, and
- *     switch back to the user's keyboard;
- *  5. clipboard + ACTION_PASTE on the field (any language; the clipboard keeps the text).
+ *  4. clipboard + ACTION_PASTE on the field (any language; the clipboard keeps the text).
  */
 @Singleton
-class TextInput @Inject constructor(@ApplicationContext private val context: Context, private val shizuku: ShizukuShell) {
+class TextInput @Inject constructor(@ApplicationContext private val context: Context) {
 
     /** How text got in, plus what the field shows afterwards (null when it cannot be read back). */
     class Typed(val method: String, val fieldText: String?)
@@ -36,10 +32,9 @@ class TextInput @Inject constructor(@ApplicationContext private val context: Con
      * is re-read: if it changed at all, an earlier path did commit something (masked/reformatting
      * fields fail a strict check), so we stop rather than type the text a second time.
      */
-    suspend fun type(svc: DshAccessibilityService, target: AccessibilityNodeInfo?, text: String, append: Boolean, displayId: Int = Display.DEFAULT_DISPLAY): Typed? {
-        // The input connection, the keyboard and `ime set` belong to the user's focused field: on the
-        // agent screen only paths bound to the target node (or to that display) are safe.
-        val main = displayId == Display.DEFAULT_DISPLAY
+    suspend fun type(svc: DshAccessibilityService, target: AccessibilityNodeInfo?, text: String, append: Boolean): Typed? {
+        // The input connection and the keyboard belong to the user's focused field (the only screen
+        // this version controls), so they are safe to use for every target.
         val before = target?.let(::shownText)
         val full = if (append) (before.orEmpty() + text) else text
         fun done(method: String) = Typed(method, readBack(target))
@@ -56,26 +51,13 @@ class TextInput @Inject constructor(@ApplicationContext private val context: Con
         }
 
         target?.let { focus(it) }
-        if (main && svc.commitViaA11yInput(text, replace = !append)) {
+        if (svc.commitViaA11yInput(text, replace = !append)) {
             if (verify(target, text, trustWithoutNode = true)) return done("a11y_input" + unverified(target))
             if (changed()) return done("a11y_input (partial: the field reformatted the text; check it)")
         }
-        if (main && DshInputMethodService.isCurrent(context) && DshInputMethodService.instance?.commit(text, replace = !append) == true) {
+        if (DshInputMethodService.isCurrent(context) && DshInputMethodService.instance?.commit(text, replace = !append) == true) {
             if (verify(target, text, trustWithoutNode = true)) return done("dsh_ime" + unverified(target))
             if (changed()) return done("dsh_ime (partial: the field reformatted the text; check it)")
-        }
-
-        if (shizuku.available) {
-            if (text.all { it.code in 0x20..0x7e }) {
-                if (!append && target != null) clear(target)
-                if (shizuku.exec((if (main) "input text " else "input -d $displayId text ") + shellQuote(text.replace(" ", "%s"))).code == 0) {
-                    if (verify(target, text, trustWithoutNode = true)) return done("shizuku_input" + unverified(target))
-                    if (changed()) return done("shizuku_input (partial: the field reformatted the text; check it)")
-                }
-            } else if (main && viaImeSwitch(text, !append)) {
-                if (verify(target, text, trustWithoutNode = true)) return done("shizuku_ime" + unverified(target))
-                if (changed()) return done("shizuku_ime (partial: the field reformatted the text; check it)")
-            }
         }
 
         if (target != null) {
@@ -110,22 +92,6 @@ class TextInput @Inject constructor(@ApplicationContext private val context: Con
         })
     }
 
-    /** Temporarily selects DSH 输入法 through Shizuku, commits, then restores the user's keyboard. */
-    private suspend fun viaImeSwitch(text: String, replace: Boolean): Boolean {
-        val ours = DshInputMethodService.id(context)
-        val previous = DshInputMethodService.currentId(context)
-        if (shizuku.exec("ime enable $ours && ime set $ours").code != 0) return false
-        try {
-            repeat(20) {
-                DshInputMethodService.instance?.let { if (it.commit(text, replace)) return true }
-                delay(100)
-            }
-            return false
-        } finally {
-            if (previous != null && previous != ours) shizuku.exec("ime set ${shellQuote(previous)}")
-        }
-    }
-
     /** The field shows the text now (password fields cannot be read back: trust the action). */
     private suspend fun verify(n: AccessibilityNodeInfo?, expected: String, trustWithoutNode: Boolean = false): Boolean {
         if (n == null) return trustWithoutNode
@@ -139,8 +105,6 @@ class TextInput @Inject constructor(@ApplicationContext private val context: Con
         }
         return false
     }
-
-    private fun shellQuote(s: String) = "'" + s.replace("'", "'\\''") + "'"
 
     companion object {
         /** What the field contains: an empty field reports its hint as its text, which is not content. */

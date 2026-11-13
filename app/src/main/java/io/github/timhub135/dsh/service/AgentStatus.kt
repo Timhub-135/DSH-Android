@@ -9,8 +9,6 @@ import io.github.timhub135.dsh.core.session.SessionLive
 import io.github.timhub135.dsh.core.session.ToolState
 import io.github.timhub135.dsh.core.session.Turn
 import io.github.timhub135.dsh.core.session.TurnStatus
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 
 /** What the floating ball's status capsule says about a conversation (the service turns it into text). */
 sealed interface CapsuleStatus {
@@ -19,8 +17,8 @@ sealed interface CapsuleStatus {
 
     /** A card waits for the user; [detail]: the takeover reason, the question, or the tool to approve. */
     data class NeedsYou(val need: Need, val detail: String?) : CapsuleStatus
-    /** [step]: the tool executing now (null: the model is thinking); [background]: the turn works on its agent screen. */
-    data class Working(val step: Block.Tool?, val background: Boolean) : CapsuleStatus
+    /** [step]: the tool executing now (null: the model is thinking). */
+    data class Working(val step: Block.Tool?) : CapsuleStatus
     data class Ended(val end: End) : CapsuleStatus
 }
 
@@ -30,8 +28,6 @@ object AgentStatus {
     const val ENDED_MS = 4_000L
     /** The border stays between steps that act on the user's screen (the model thinks in between). */
     const val BORDER_LINGER_MS = 10_000L
-
-    private val BACKGROUND_TOOLS = setOf("app_launch", "app_open_link", "app_send_intent", "alarm_show", "calendar_new_event")
 
     /** Status per conversation: a subagent's (`root/child`) counts for its root; the most urgent wins. */
     fun roots(status: Map<String, RowStatus>): Map<String, RowStatus> {
@@ -51,8 +47,8 @@ object AgentStatus {
         return roots.entries.firstOrNull { it.value == RowStatus.Running }?.key
     }
 
-    /** [hasAgentScreen]: the conversation has a live agent screen. Null when there is nothing to say. */
-    fun of(live: SessionLive, hasAgentScreen: Boolean): CapsuleStatus? {
+    /** Null when there is nothing to say. */
+    fun of(live: SessionLive): CapsuleStatus? {
         live.takeover?.let { return CapsuleStatus.NeedsYou(CapsuleStatus.Need.Takeover, it.reason) }
         live.question?.let { q -> return CapsuleStatus.NeedsYou(CapsuleStatus.Need.Question, q.questions.firstOrNull()?.text) }
         live.permission?.let { return CapsuleStatus.NeedsYou(CapsuleStatus.Need.Permission, null) }
@@ -66,10 +62,7 @@ object AgentStatus {
             TurnStatus.Failed, TurnStatus.MaxTokens -> CapsuleStatus.Ended(CapsuleStatus.End.Failed)
         }
         val tools = turn?.blocks.orEmpty().filterIsInstance<Block.Tool>()
-        val last = tools.lastOrNull()
-        val background = hasAgentScreen && last != null && (last.name.startsWith("screen_") || last.name in BACKGROUND_TOOLS) &&
-            (last.args?.get("screen") as? JsonPrimitive)?.contentOrNull != "main"
-        return CapsuleStatus.Working(tools.lastOrNull { it.state == ToolState.Running }, background)
+        return CapsuleStatus.Working(tools.lastOrNull { it.state == ToolState.Running })
     }
 
     /** The newest turn, projected from its own events only (the log can be long). */

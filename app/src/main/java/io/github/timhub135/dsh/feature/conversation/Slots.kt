@@ -64,12 +64,7 @@ import io.github.timhub135.dsh.core.session.TakeoverAnswer
 import io.github.timhub135.dsh.core.session.PendingQuestion
 import io.github.timhub135.dsh.core.session.ToolState
 import io.github.timhub135.dsh.core.session.parseArgs
-import io.github.timhub135.dsh.core.platform.SHIZUKU_WHAT
 import io.github.timhub135.dsh.feature.settings.PermissionCatalog
-import io.github.timhub135.dsh.feature.settings.ShellGuideActions
-import io.github.timhub135.dsh.feature.settings.ShellGuideBody
-import io.github.timhub135.dsh.feature.settings.rememberShellGuideFlow
-import io.github.timhub135.dsh.feature.settings.rememberShellState
 import io.github.timhub135.dsh.feature.settings.isZh
 
 /** The approval-style card frame: warn border, warn strip, scrolling body, right-aligned actions. */
@@ -117,27 +112,10 @@ fun ApprovalCard(a: PendingApproval, onAnswer: (ApprovalOutcome) -> Unit) {
     }
 }
 
-/** The composer slot's permission wait: the Shizuku guide for shell steps, else the Android permission card. */
+/** The composer slot's permission wait: the Android permission card. */
 @Composable
 fun PermissionCard(p: PendingPermission, onAnswer: (Boolean) -> Unit) {
-    if (p.what == SHIZUKU_WHAT) ShizukuCard(p, onAnswer) else SystemPermissionCard(p, onAnswer)
-}
-
-/**
- * Just-in-time Shizuku card: the guide for the current state (install / open / authorize). The
- * waiting call resumes on its own once Shizuku is ready (ShellGate watches the state); 不用了 lets
- * the tool take its non-shell path or tell the model, and is remembered for the session.
- */
-@Composable
-private fun ShizukuCard(p: PendingPermission, onAnswer: (Boolean) -> Unit) {
-    val (access, s) = rememberShellState()
-    val flow = rememberShellGuideFlow(access, s)
-    var answered by remember(p.requestKey) { mutableStateOf(false) }
-    AttentionCard(stringResource(R.string.shz_strip), answered || s.ready, body = {
-        ShellGuideBody(s, stringResource(ToolPresentation.info(p.toolName).title), flow)
-    }) {
-        ShellGuideActions(s, flow, onDecline = { answered = true; onAnswer(false) }, enabled = !answered)
-    }
+    SystemPermissionCard(p, onAnswer)
 }
 
 /**

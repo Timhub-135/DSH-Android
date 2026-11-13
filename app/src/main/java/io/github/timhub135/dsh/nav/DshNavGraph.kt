@@ -8,7 +8,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavBackStackEntry
@@ -28,7 +27,6 @@ import io.github.timhub135.dsh.feature.conversation.HomeViewModel
 import io.github.timhub135.dsh.feature.extensions.ExtensionsSubPage
 import io.github.timhub135.dsh.feature.extensions.extensionsPageTitle
 import io.github.timhub135.dsh.feature.settings.AppNotesScreen
-import io.github.timhub135.dsh.feature.settings.EnhanceStep
 import io.github.timhub135.dsh.feature.settings.ModeScreen
 import io.github.timhub135.dsh.feature.settings.NotificationAppsScreen
 import io.github.timhub135.dsh.feature.settings.Onboarding
@@ -37,7 +35,6 @@ import io.github.timhub135.dsh.feature.settings.SettingsIndexScreen
 import io.github.timhub135.dsh.feature.settings.SettingsPage
 import io.github.timhub135.dsh.feature.settings.SettingsSection
 import io.github.timhub135.dsh.feature.settings.SettingsSectionScreen
-import io.github.timhub135.dsh.feature.settings.shellAccessOf
 
 /**
  * Every page of the app as a destination; home is the fixed start. Pages get Back
@@ -49,7 +46,6 @@ fun NavGraphBuilder.dshGraph(nav: NavHostController, home: () -> HomeViewModel) 
     composable<HomeRoute> { HomeScreen(home(), onSettings = { nav.openSettings(it) }, onAutomation = { nav.navigate(AutomationRoute) }) }
     composable<OnboardingRoute> { e -> OnboardingPage(nav, e, keyStep = false) }
     composable<OnboardingKeyRoute> { e -> OnboardingPage(nav, e, keyStep = true) }
-    composable<EnhanceRoute> { e -> EnhanceStep(onDone = { nav.up(e) }) }
     composable<PlatformWebRoute> {
         val account = LocalAccount.current
         val page = account?.page?.collectAsStateWithLifecycle()?.value
@@ -86,11 +82,9 @@ fun NavGraphBuilder.dshGraph(nav: NavHostController, home: () -> HomeViewModel) 
 /** Onboarding's credential choice, and its 使用 API Key step (the same screen with the key card open). */
 @Composable
 private fun OnboardingPage(nav: NavHostController, e: NavBackStackEntry, keyStep: Boolean) {
-    val context = LocalContext.current
     Onboarding(showKey = keyStep, onShowKey = { show -> if (show && !keyStep) nav.navigate(OnboardingKeyRoute) { launchSingleTop = true } else if (!show && keyStep) nav.up(e) },
         onThirdParty = { nav.finishOnboarding(SectionRoute(SettingsSection.Model)) },
-        // Optional 增强能力 step (Shizuku) unless it is already set up.
-        onDone = { nav.finishOnboarding(if (shellAccessOf(context).refresh().ready) HomeRoute else EnhanceRoute) })
+        onDone = { nav.finishOnboarding(HomeRoute) })
 }
 
 /**
