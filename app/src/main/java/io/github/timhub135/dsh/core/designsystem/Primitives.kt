@@ -1,5 +1,6 @@
 package io.github.timhub135.dsh.core.designsystem
 
+import android.content.ClipboardManager
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -66,6 +67,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -457,12 +459,28 @@ fun DInput(
         textStyle = DshType.s14.copy(color = c.labelPrimary),
         cursorBrush = SolidColor(c.business),
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        // Some OEM IMEs refuse paste into TYPE_TEXT_VARIATION_PASSWORD fields. Masking is done by
+        // PasswordVisualTransformation, so a password keyboard type buys nothing and breaks paste.
+        keyboardOptions = KeyboardOptions(keyboardType = if (keyboardType == KeyboardType.Password) KeyboardType.Ascii else keyboardType),
         decorationBox = { inner ->
-            Box(Modifier.heightIn(min = minHeight).clip(Radius.md).background(c.bgModule).border(Hairline, c.borderL2, Radius.md)
-                .padding(horizontal = 12.dp, vertical = 9.dp), contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) Text(placeholder, style = DshType.s14, color = c.labelCaption)
-                inner()
+            val context = LocalContext.current
+            Box(Modifier.heightIn(min = minHeight).clip(Radius.md).background(c.bgModule).border(Hairline, c.borderL2, Radius.md)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        if (value.isEmpty()) Text(placeholder, style = DshType.s14, color = c.labelCaption)
+                        inner()
+                    }
+                    // Fallback for OEM IMEs that refuse paste into masked/password fields.
+                    if (secret) Text(
+                        androidx.compose.ui.res.stringResource(R.string.input_paste),
+                        Modifier.clip(Radius.sm).clickable {
+                            val cm = context.getSystemService(ClipboardManager::class.java)
+                            val pasted = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+                            if (!pasted.isNullOrBlank()) onChange(pasted.trim())
+                        }.padding(horizontal = 6.dp, vertical = 4.dp),
+                        style = DshType.xs13, color = c.business,
+                    )
+                }
             }
         },
     )

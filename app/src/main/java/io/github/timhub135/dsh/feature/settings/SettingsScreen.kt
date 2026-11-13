@@ -288,7 +288,7 @@ private fun ModelSection(vm: SettingsViewModel, onProvider: (String) -> Unit) {
             Tag(stringResource(if (hasKey) R.string.key_connected else R.string.key_missing), if (hasKey) Tone.Success else Tone.Warn)
         }
         Text(stringResource(R.string.api_key_label), style = DshType.xs13m, color = c.labelSecondary)
-        DInput(key, { key = it }, placeholder = masked ?: "sk-…", secret = true, keyboardType = KeyboardType.Password)
+        DInput(key, { key = it }, placeholder = masked ?: "sk-…", secret = true, keyboardType = KeyboardType.Ascii)
         when (status) {
             null -> {}
             "checking" -> Text(stringResource(R.string.key_checking), style = DshType.xxs12, color = c.labelTertiary)
@@ -620,7 +620,7 @@ fun Onboarding(showKey: Boolean, onShowKey: (Boolean) -> Unit, onDone: () -> Uni
                 if (showKey) {
                     HDividerSpaced()
                     Text(stringResource(R.string.onb_key_body), style = DshType.xs13, color = c.labelTertiary)
-                    DInput(key, { key = it }, placeholder = "sk-…", secret = true, keyboardType = KeyboardType.Password)
+                    DInput(key, { key = it }, placeholder = "sk-…", secret = true, keyboardType = KeyboardType.Ascii)
                     when (status) {
                         null -> {}
                         "checking" -> Text(stringResource(R.string.key_checking), style = DshType.xxs12, color = c.labelTertiary)

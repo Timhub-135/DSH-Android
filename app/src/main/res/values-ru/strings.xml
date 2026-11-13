@@ -844,4 +844,5 @@
     <string name="upd_res_skipped">%1$s пропущена</string>
     <string name="upd_res_failed">Не удалось проверить: %1$s</string>
     <string name="upd_view">Открыть</string>
+    <string name="input_paste">Вставить</string>
 </resources>
