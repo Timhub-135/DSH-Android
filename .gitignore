@@ -23,3 +23,6 @@ skills-disabled/
 skills-*.zip
 .claude/
 .agents/
+
+# Python staging/pycache
+__pycache__/
